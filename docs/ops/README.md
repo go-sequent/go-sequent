@@ -12,4 +12,4 @@ Production hardening guides for the event store and projections.
 
 中文：[`README.zh.md`](./README.zh.md) 及同名 `*.zh.md`。
 
-**Locked defaults:** ledger projectors = SyncInTxn (Q1); integrity = DB controls only (Q3); tenancy = shared schema + `tenant_id` (Q4); outbox = table polling (Q6); no Ruby Sequent DB import (Q9).
+**Locked defaults:** ledger projectors = SyncInTxn (Q1); integrity = hash chain (Q3, no signatures); tenancy = shared schema + `tenant_id` (Q4); outbox = table polling (Q6); no Ruby Sequent DB import (Q9).

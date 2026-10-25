@@ -21,6 +21,6 @@
 | 语义破坏 | 新事件类型 + 补偿事件 |
 | 快照不兼容 | 提升 `SnapshotVersion`，丢弃旧快照 |
 
-金额保持 decimal 字符串（Q2）；禁止 float64。禁止静默改事件行、框架哈希链/签名（Q3）、crypto-shredding 产品化（Q5）、Sequent dump 导入（Q9）。
+金额保持 decimal 字符串（Q2）；禁止 float64。禁止静默改事件行；哈希链可发现篡改；禁止事件签名（Q3）；禁止 crypto-shredding 产品化（Q5）；禁止 Sequent dump 导入（Q9）。
 
 详见英文版 [event-evolution.md](./event-evolution.md) 与运维 [projection-rebuild.zh.md](../ops/projection-rebuild.zh.md)。

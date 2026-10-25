@@ -58,7 +58,7 @@ go get github.com/wenweih/go-sequent@latest
 | **加密钩子 / 墓碑** | `crypto.PayloadProtector`；GDPR = **仅墓碑**（Q5） |
 | **Outbox 轮询**（Q6） | `publish.WithOutbox` + CLI `outbox`；账本仍 SyncInTxn |
 | **OpenTelemetry** | `obs.New` + `WithObs`（应用自配 Provider；详见 [指南 §19](./guide.zh.md#19-opentelemetryobs)） |
-| **禁止** | 事件哈希链/签名（Q3） |
+| **完整性** | 哈希链；禁止事件签名（Q3） |
 
 ### OpenTelemetry 最小接线
 
@@ -88,6 +88,6 @@ go run ./cmd/go-sequent outbox -dsn "$DSN" -once
 
 ## 已锁定默认
 
-同步账本投影 · decimal · 仅 DB 完整性 · 共享 schema + `tenant_id` · 仅墓碑 · Outbox 表轮询 · 纯库 · 不公开（Q10）。
+同步账本投影 · decimal · 哈希链完整性 · 共享 schema + `tenant_id` · 仅墓碑 · Outbox 表轮询 · 纯库 · 不公开（Q10）。
 
 详见 [design.zh.md](./design.zh.md) §6–§10。

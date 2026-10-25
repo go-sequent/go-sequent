@@ -142,7 +142,7 @@ tenancy.PartitionKeyHashed(tenantID, "shard-a")
 tenancy.MatchAggregateTenant(cmdTenant, agg.PartitionKey())
 ```
 
-**No** event hash-chain or signatures (Q3).
+Event **hash chain** enabled; **no** signatures (Q3).
 
 ## Ops CLI
 
@@ -170,7 +170,7 @@ go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
 |-------|--------|
 | Projections | SyncInTxn for ledgers (Q1) |
 | Money | Decimal (Q2) |
-| Integrity | DB only — no hash/sign (Q3) |
+| Integrity | Hash chain — no signatures (Q3) |
 | Tenancy | Shared schema + `tenant_id` (Q4) |
 | GDPR | Tombstone only (Q5) |
 | Outbox | Postgres table polling (Q6) |

@@ -30,7 +30,7 @@
 | Area | Goal |
 |------|------|
 | **CQRS + ES fidelity** | Provide a Go-idiomatic equivalent of Sequent’s core loop: Command → Handler → Aggregate → EventStore → Projector/Workflow, with strong transactional defaults. |
-| **Finance-grade audit** | Immutable append-only event log; command↔event causality; integrity via DB controls (no hash chain / event signatures); retention & replay for regulators; GDPR via tombstones. |
+| **Finance-grade audit** | Immutable append-only event log; command↔event causality; integrity via **hash chain** (no event signatures); retention & replay for regulators; GDPR via tombstones. |
 | **Correctness under concurrency** | Optimistic concurrency per aggregate stream; clear conflict errors; idempotent command admission. |
 | **Performance** | Efficient load (batch + snapshots), batch append, projection rebuild with parallelism; predictable latency under load. |
 | **HA** | PostgreSQL primary/replica patterns documented; read-scale projections; failover notes; no silent split-brain writes. |
@@ -268,7 +268,7 @@ github.com/wenweih/go-sequent
 │   ├── publisher.go              # sync in-txn publisher
 │   └── outbox/                   # optional async; Postgres polling when used
 ├── types/                        # Money (decimal), Secret hooks
-├── security/                     # Authz interfaces (no event signing — Q3)
+├── security/                     # Authz interfaces (no event signing — Q3; hash chain in eventstore)
 ├── tenancy/                      # shared schema + tenant_id helpers
 ├── obs/                          # OpenTelemetry helpers
 ├── migrate/
@@ -303,7 +303,7 @@ Core tables (PostgreSQL):
 - `idempotency_key text` (nullable; unique with tenant)
 - `correlation_id` / `causation_id`
 
-No `payload_hash` / `event_hash` / signature columns — event integrity is **DB controls only** (Q3).
+Events carry `prev_hash` / `event_hash` (SHA-256 hash chain, Q3). **No** signature columns.
 
 ### 5.2 Optimistic concurrency
 
@@ -359,7 +359,7 @@ Mirror Sequent 8:
 - No update/delete API on events in normal operation.
 - Compensating events for business corrections (`PaymentReversed`), not silent edits.
 - Command + event linkage for forensic replay.
-- Event integrity = **DB controls only** (ACLs, backups, WORM where applicable) — **no** hash chain and **no** event signatures (Q3, locked 2026-10-26).
+- Event integrity = **hash chain** (per-aggregate SHA-256) so tampering is detectable; **no** event signatures (Q3, revised 2026-10-26 Asia/Shanghai). DB ACLs/backups remain complementary.
 
 ### 6.2 Idempotency
 
@@ -394,7 +394,7 @@ Mirror Sequent 8:
 
 ### 6.6 Observability & SLA / HA
 
-**Role of OTel in-framework:** vendor-neutral hooks (`obs` + `sequent.WithObs`) so operators can see write-path health without choosing an APM inside the library. Complementary to EventStore / command audit — **not** a business audit trail (Q3 integrity stays DB-only; Q7 keeps exporters in the host app). See [guide §19 Role and purpose](./guide.md#role-and-purpose).
+**Role of OTel in-framework:** vendor-neutral hooks (`obs` + `sequent.WithObs`) so operators can see write-path health without choosing an APM inside the library. Complementary to EventStore / command audit — **not** a business audit trail (Q3 integrity is hash chain; Q7 keeps exporters in the host app). See [guide §19 Role and purpose](./guide.md#role-and-purpose).
 
 **Implemented today (`obs`):** `sequent.Execute` span; metrics `sequent.command.duration_ms`, `sequent.command.total`, `sequent.optimistic_conflict.total`; optional `sequent.outbox.depth`. `RecordEvents` API exists but is not auto-hooked on append.
 
@@ -465,10 +465,12 @@ Installed as Filter/Middleware **after** authentication context is attached, **b
 
 Aggregate-level checks (e.g. account ownership) stay in domain guards using only aggregate state + command claims — not ad-hoc DB queries.
 
-### 8.2 Event integrity (no signing)
+### 8.2 Event integrity (hash chain; no signing)
 
-- **Out of scope:** framework event signing / hash chains (Q3).
-- Rely on PostgreSQL access control, backups, and optional WORM / immutable storage at the ops layer.
+- **In scope:** per-aggregate hash chain (`prev_hash`/`event_hash`, SHA-256).
+- **Out of scope:** event signatures (Q3).
+- **Canonical bytes** (UTF-8 lines joined by `\n`, no trailing newline after the last line): `event_type`, `aggregate_id`, `sequence_number`, `created_at` (UTC RFC3339Nano), `event_json`, `prev_hash` hex (64 lowercase). Seq 1 uses genesis (32 zero bytes). See `eventstore/hashchain`. Migration: `005_hash_chain.sql`.
+- Rely on PostgreSQL access control, backups, and optional WORM / immutable storage at the ops layer as complementary controls.
 - Apps may still encrypt PII fields via `PayloadProtector` without implying event authenticity signatures.
 
 ### 8.3 Threat notes
@@ -477,7 +479,7 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 |--------|------------|
 | Replay attack on APIs | Idempotency keys + authn tokens / mTLS |
 | Privilege escalation via forged commands | AuthZ middleware; never trust client-set `UserID` without verified claims |
-| Event store tampering | DB controls, immutable storage / WORM backups (no in-framework signatures/hash chain) |
+| Event store tampering | Hash chain verification + DB ACLs / WORM backups (no event signatures) |
 | PII leakage in logs/traces | Redaction; encrypted payloads; tombstone strategy for erasure requests |
 | Projector SQL injection | Parameterized persistor only |
 | Confused deputy across tenants | Tenant enforcement on load/append (`tenant_id`) |
@@ -525,7 +527,7 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 - Optional outbox publisher mode with **Postgres polling** (Q6); ledger projectors remain sync.
 - OpenTelemetry metrics/traces.
 - Multi-tenancy helpers for shared schema + `tenant_id`.
-- No event signing / hash-chain feature (Q3).
+- Hash chain on append/load; **no** event signatures (Q3).
 
 ### Phase 4 — Production hardening
 
@@ -558,7 +560,7 @@ Confirmed by wei on **2026-10-26** (Asia/Shanghai). No new open questions in thi
 | D10 | Conceptual Sequent inspiration only — **never** Ruby Sequent DB import (affirms Q9). |
 | D11 | **Q1** Ledger / balance projections = **sync** (`SyncInTxn`). |
 | D12 | **Q2** Money representation = **decimal**. |
-| D13 | **Q3** Event integrity = **DB controls only** (no hash chain, no event signatures). |
+| D13 | **Q3** Event integrity = **hash chain** (no event signatures). Supersedes DB-only. |
 | D14 | **Q4** Multi-tenancy = **shared schema + `tenant_id`**. |
 | D15 | **Q5** GDPR / retention = **tombstone only** (not crypto-shredding). |
 | D16 | **Q6** Outbox transport (when used) = **Postgres table polling**. |
@@ -573,7 +575,7 @@ Confirmed by wei on **2026-10-26** (Asia/Shanghai). No new open questions in thi
 |----|----------|--------|----------|
 | Q1 | Async vs sync projections for ledger balances? | **已决** 2026-10-26 | **同步** — sync projectors / sync ledger balance projections |
 | Q2 | Money representation? | **已决** 2026-10-26 | **decimal**（非整数最小单位） |
-| Q3 | Event integrity: hash chain / signatures / DB only? | **已决** 2026-10-26 | **仅 DB 管控** — no hash chain / no event signatures |
+| Q3 | Event integrity: hash chain / signatures / DB only? | **已决** 2026-10-26（修订） | **哈希链** — no event signatures |
 | Q4 | Multi-tenancy model? | **已决** 2026-10-26 | **共享 schema + `tenant_id`** |
 | Q5 | GDPR / retention strategy? | **已决** 2026-10-26 | **仅墓碑**（tombstone only; not crypto-shredding） |
 | Q6 | Outbox transport? | **已决** 2026-10-26 | **Postgres 轮询** outbox 表（when outbox is used） |

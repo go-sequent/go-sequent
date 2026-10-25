@@ -10,7 +10,7 @@
 
 1. 认证在宿主应用完成；`UserID` / `AuthContext` 不可盲信。
 2. `security.Authorizer` 在 handler 前拦截。
-3. 单写主库；完整性 = **仅 DB 管控**（Q3，无签名/哈希链）。
+3. 单写主库；完整性 = **哈希链**（Q3）+ DB ACL/备份；无事件签名。
 4. 账本 SyncInTxn（Q1）；Outbox 至少一次 + 幂等消费（Q6）。
 
 ## 威胁与缓解（摘要）
@@ -19,7 +19,7 @@
 |------|------|
 | 重放 / 双提交 | 租户幂等键 |
 | 伪造命令提权 | AuthZ；敏感类型默认拒绝 |
-| 事件库篡改 | DB ACL / WORM 备份（Q3） |
+| 事件库篡改 | 哈希链校验 + DB ACL / WORM 备份（Q3，无签名） |
 | 跨租户 | `tenant_id` + UniqueScope + 加载校验 |
 | PII 泄露 | 脱敏、PayloadProtector、墓碑（Q5，非粉碎） |
 | 投影注入 | 仅参数化 Persistor |

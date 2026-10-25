@@ -34,4 +34,4 @@ go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
 go run ./cmd/go-sequent outbox -dsn "$DSN" -once
 ```
 
-Ledger projectors remain **SyncInTxn** (Q1). No event hash-chain/signatures (Q3). Never import Ruby Sequent DBs (Q9).
+Ledger projectors remain **SyncInTxn** (Q1). Hash chain yes; **no** event signatures (Q3). Never import Ruby Sequent DBs (Q9).

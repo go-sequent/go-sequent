@@ -276,11 +276,26 @@ type Store interface {
 | `ErrOptimisticConcurrency` | 期望版本与流尖端不符 |
 | `ErrUniqueKeyViolation` | 唯一键冲突 |
 | `ErrStreamNotFound` | 加载未知流 |
+| `ErrHashChainTamper` | 哈希链校验失败（篡改或链路断裂） |
+| `ErrHashChainIncomplete` | 缺少 `prev_hash` / `event_hash` |
 
 **memory**：单测与本地 IT。  
-**postgres**：`Open` + `Migrate`；schema `001`–`004`（含 store_events、phase3 的幂等 / 墓碑等）。同一实现还可当 `TxManager` 与 `SnapshotStore`。
+**postgres**：`Open` + `Migrate`；schema `001`–`005`（含 `005_hash_chain.sql`）。同一实现还可当 `TxManager` 与 `SnapshotStore`。另提供 `VerifyChain(ctx, aggregateID)`。
 
 业务代码通常经 Repository 访问 Store，而不是直接 `Append`（测 OCC 时可以直写）。
+
+### 哈希链（Q3）
+
+按聚合流的 SHA-256 链：每行存 `prev_hash` + `event_hash`。序号 1 的 `prev_hash` 为 genesis（32 字节全 0）。规范输入为 UTF-8 行，以 `\n` 拼接（末行无尾换行）：
+
+1. `event_type`
+2. `aggregate_id`（UUID 字符串）
+3. `sequence_number`（十进制）
+4. `created_at`（UTC RFC3339Nano）
+5. `event_json`（落库原文）
+6. `prev_hash` 的 64 位小写 hex
+
+`event_hash = SHA-256(input)`。实现见 `eventstore/hashchain`。**不做**事件签名。`LoadStream` 会校验；亦可显式调用 `VerifyChain`。篡改 → `ErrHashChainTamper`。
 
 ---
 
@@ -396,7 +411,7 @@ type Authorizer interface {
 内置：`AllowAll`、`DenyByDefault{Allow: map[string]bool{...}}`。  
 安装：`sequent.WithAuthorizer`（Filter）或 `security.Middleware`。拒绝时用 `errors.Is(err, security.ErrDenied)` 判断。
 
-**不做** 事件哈希链或签名（Q3）。
+**做** 哈希链；**不做** 事件签名（Q3）。
 
 ---
 
@@ -446,7 +461,7 @@ JSON 里金额是 **字符串**，禁止 `float64`。可用 `types.AssertNoFloat
 
 **不做什么：** 不替代业务审计；不自动埋点 HTTP/gRPC、Projector、Outbox poller；不捆绑 exporter；Provider 由应用配置。`RecordEvents` API 存在，但 **没有** 自动挂到 append（见下）。
 
-**与锁定决策：** 只是可观测性钩子。事件完整性仍是 **仅 DB**（Q3）；交付形态仍是 **纯库**（Q7）——导出留给宿主进程。
+**与锁定决策：** 只是可观测性钩子。事件完整性是 **哈希链**（Q3）；交付形态仍是 **纯库**（Q7）——导出留给宿主进程。
 
 ### 接线
 
@@ -594,7 +609,8 @@ go test ./...   # 无 DSN 必须绿
 | AggregateObserver | **未**单独产品化 |
 | ValueObject 一等类型系统 | 普通 Go 类型 + `types.Money` |
 | LISTEN/NOTIFY / 默认消息总线 | 可选 Outbox **表轮询** |
-| 事件哈希链 / 签名 | **明确不做**（Q3） |
+| 事件哈希链 | **已实现**（Q3） |
+| 事件签名 | **明确不做**（Q3） |
 | 导入既有 Sequent DB | **禁止**（Q9） |
 | HTTP/gRPC stubs | **无**（Q7） |
 
@@ -634,7 +650,12 @@ go test ./...   # 无 DSN 必须绿
 <a id="gloss-eventstore"></a>
 
 **EventStore（事件存储）**  
-持久化 Command 记录与聚合事件流，并做 OCC 与唯一键检查。实现：`eventstore/memory`、`eventstore/postgres`。业务通常走 Repository，而不是直接 `Append`。
+持久化 Command 记录与聚合事件流，做 OCC、唯一键检查，以及按聚合的[哈希链](#gloss-hash-chain)。实现：`eventstore/memory`、`eventstore/postgres`。业务通常走 Repository，而不是直接 `Append`。
+
+<a id="gloss-hash-chain"></a>
+
+**哈希链（hash chain）**  
+Q3 完整性：每条事件存 `prev_hash` + `event_hash`（对 `eventstore/hashchain` 规范字段做 SHA-256）。链路按 **聚合流**；首条 prev 为 32 字节全 0。加载 / `VerifyChain` 时校验。可发现篡改；**不是**事件签名。增加写路径与校验成本。
 
 <a id="gloss-uow"></a>
 
@@ -709,7 +730,7 @@ Q5 策略：发出如 `gdpr.SubjectTombstoned` 的标记，投影侧擦除或停
 <a id="gloss-authz"></a>
 
 **AuthZ**  
-命令边界上的授权（`security.Authorizer` / `WithAuthorizer`）。拒绝返回 `ErrDenied`。与认证（AuthN）分离；不做事件签名（Q3）。
+命令边界上的授权（`security.Authorizer` / `WithAuthorizer`）。拒绝返回 `ErrDenied`。与认证（AuthN）分离；哈希链在 EventStore；不做事件签名（Q3）。
 
 <a id="gloss-meta"></a>
 
@@ -739,7 +760,7 @@ Q5 策略：发出如 `gdpr.SubjectTombstoned` 的标记，投影侧擦除或停
 |---|------|
 | Q1 | [账本投影](#gloss-ledger-projection) **SyncInTxn** |
 | Q2 | Money = **decimal**（禁 float64） |
-| Q3 | 完整性 = **仅 DB**（无哈希链 / 签名） |
+| Q3 | 完整性 = **哈希链**（无事件签名） |
 | Q4 | 多租户 = **共享 schema + tenant_id** |
 | Q5 | GDPR = **仅墓碑** |
 | Q6 | Outbox = **Postgres 表轮询** |

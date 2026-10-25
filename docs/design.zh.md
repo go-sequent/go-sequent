@@ -33,7 +33,7 @@
 | 领域 | 目标 |
 |------|------|
 | **CQRS + ES 保真** | 提供符合 Go 习惯的 Sequent 核心闭环等价物：Command → Handler → Aggregate → EventStore → Projector/Workflow，默认强事务语义。 |
-| **金融级审计** | 不可变、仅追加的事件日志；command↔event 因果链；完整性依赖 **DB 管控**（无哈希链 / 事件签名）；监管所需的留存与重放；GDPR 采用墓碑策略。 |
+| **金融级审计** | 不可变、仅追加的事件日志；command↔event 因果链；完整性依赖 **哈希链**（无事件签名）；监管所需的留存与重放；GDPR 采用墓碑策略。 |
 | **并发正确性** | 按聚合流做乐观并发；冲突错误清晰；命令受理幂等。 |
 | **性能** | 高效加载（批量 + 快照）、批量追加、投影并行重建；负载下延迟可预期。 |
 | **高可用（HA）** | 文档化 PostgreSQL 主从模式；投影读扩展；故障切换说明；禁止静默双写脑裂。 |
@@ -271,7 +271,7 @@ github.com/wenweih/go-sequent
 │   ├── publisher.go              # sync in-txn publisher
 │   └── outbox/                   # optional async; Postgres polling when used
 ├── types/                        # Money (decimal), Secret hooks
-├── security/                     # Authz interfaces (no event signing — Q3)
+├── security/                     # Authz interfaces (no event signing — Q3; hash chain in eventstore)
 ├── tenancy/                      # shared schema + tenant_id helpers
 ├── obs/                          # OpenTelemetry helpers
 ├── migrate/
@@ -306,7 +306,7 @@ github.com/wenweih/go-sequent
 - `idempotency_key text`（可空；与租户组合唯一）
 - `correlation_id` / `causation_id`
 
-不设 `payload_hash` / `event_hash` / signature 列 — 事件完整性 **仅靠 DB 管控**（Q3）。
+事件带 `prev_hash` / `event_hash`（SHA-256 哈希链，Q3）。**无**签名列。
 
 ### 5.2 乐观并发
 
@@ -362,7 +362,7 @@ github.com/wenweih/go-sequent
 - 正常运行不提供对 events 的 update/delete API。
 - 业务纠错用补偿事件（如 `PaymentReversed`），禁止静默篡改。
 - Command + event 关联以支持取证重放。
-- 事件完整性 = **仅 DB 管控**（ACL、备份、适用时的 WORM）— **无**哈希链、**无**事件签名（Q3，2026-10-26 锁定）。
+- 事件完整性 = **哈希链**（按聚合流 SHA-256），篡改可发现；**无**事件签名（Q3，2026-10-26 Asia/Shanghai 修订）。DB ACL/备份仍为互补手段。
 
 ### 6.2 幂等性（Idempotency）
 
@@ -397,7 +397,7 @@ github.com/wenweih/go-sequent
 
 ### 6.6 可观测性与 SLA / HA
 
-**框架内 OTel 的作用：** 通过厂商无关钩子（`obs` + `sequent.WithObs`）让运维看到写路径健康度，而不在库内绑定某一 APM。与 EventStore / 命令审计互补——**不是**业务审计轨迹（Q3 完整性仍仅 DB；Q7 将 exporter 留在宿主应用）。见 [指南 §19 作用](./guide.zh.md#作用)。
+**框架内 OTel 的作用：** 通过厂商无关钩子（`obs` + `sequent.WithObs`）让运维看到写路径健康度，而不在库内绑定某一 APM。与 EventStore / 命令审计互补——**不是**业务审计轨迹（Q3 完整性为哈希链；Q7 将 exporter 留在宿主应用）。见 [指南 §19 作用](./guide.zh.md#作用)。
 
 **当前已实现（`obs`）：** span `sequent.Execute`；指标 `sequent.command.duration_ms`、`sequent.command.total`、`sequent.optimistic_conflict.total`；可选 `sequent.outbox.depth`。`RecordEvents` API 存在但未自动挂到 append。
 
@@ -468,10 +468,12 @@ type Authorizer interface {
 
 聚合级检查（如账户归属）留在领域守卫中，仅使用聚合状态 + command claims — 不做临时 DB 查询。
 
-### 8.2 事件完整性（不签名）
+### 8.2 事件完整性（哈希链；不签名）
 
-- **不在范围内：** 框架级事件签名 / 哈希链（Q3）。
-- 依赖 PostgreSQL 访问控制、备份，以及运维层可选的 WORM / 不可变存储。
+- **范围内：** 按聚合流哈希链（`prev_hash` / `event_hash`，SHA-256）。
+- **不在范围内：** 事件签名（Q3）。
+- **规范字节**（UTF-8 行以 `\n` 拼接，末行无尾换行）：`event_type`、`aggregate_id`、`sequence_number`、`created_at`（UTC RFC3339Nano）、`event_json`、`prev_hash` hex（64 位小写）。序号 1 的 prev 为 genesis（32 字节全 0）。见 `eventstore/hashchain`。迁移：`005_hash_chain.sql`。
+- PostgreSQL ACL、备份、运维层可选 WORM / 不可变存储仍为互补手段。
 - 应用仍可通过 `PayloadProtector` 加密 PII 字段，这并不等同于事件真实性签名。
 
 ### 8.3 威胁说明
@@ -480,7 +482,7 @@ type Authorizer interface {
 |------|------|
 | API 重放攻击 | 幂等键 + 认证令牌 / mTLS |
 | 伪造 command 提权 | AuthZ 中间件；未经验证的 claims 绝不信任客户端自设的 `UserID` |
-| EventStore 篡改 | DB 管控、不可变存储 / WORM 备份（框架内无签名/哈希链） |
+| EventStore 篡改 | 哈希链校验 + DB ACL / WORM 备份（无事件签名） |
 | 日志/链路中的 PII 泄漏 | 脱敏；加密载荷；擦除请求用墓碑策略 |
 | Projector SQL 注入 | 仅参数化 persistor |
 | 跨租户混淆代理 | 加载/追加时强制租户（`tenant_id`） |
@@ -528,7 +530,7 @@ type Authorizer interface {
 - 可选 outbox publisher，传输为 **Postgres 轮询**（Q6）；账本 projector 保持同步。
 - OpenTelemetry metrics/traces。
 - 共享 schema + `tenant_id` 的多租户辅助。
-- 无事件签名 / 哈希链能力（Q3）。
+- 哈希链已实现；**无**事件签名（Q3）。
 
 ### 阶段 4 — 生产加固
 
@@ -561,7 +563,7 @@ type Authorizer interface {
 | D10 | 仅概念上借鉴 Sequent — **永不**导入 Ruby Sequent DB（确认 Q9）。 |
 | D11 | **Q1** 账本 / 余额投影 = **同步**（`SyncInTxn`）。 |
 | D12 | **Q2** 金额表示 = **decimal**。 |
-| D13 | **Q3** 事件完整性 = **仅 DB 管控**（无哈希链、无事件签名）。 |
+| D13 | **Q3** 事件完整性 = **哈希链**（无事件签名）。取代此前「仅 DB」。 |
 | D14 | **Q4** 多租户 = **共享 schema + `tenant_id`**。 |
 | D15 | **Q5** GDPR / 留存 = **仅墓碑**（非 crypto-shredding）。 |
 | D16 | **Q6** Outbox 传输（启用时）= **Postgres 表轮询**。 |
@@ -576,7 +578,7 @@ type Authorizer interface {
 |----|------|------|------|
 | Q1 | 账本余额投影用异步还是同步？ | **已决** 2026-10-26 | **同步** — sync projectors / sync ledger balance projections |
 | Q2 | 金额表示？ | **已决** 2026-10-26 | **decimal**（非整数最小单位） |
-| Q3 | 事件完整性：哈希链 / 签名 / 仅 DB？ | **已决** 2026-10-26 | **仅 DB 管控** — no hash chain / no event signatures |
+| Q3 | 事件完整性：哈希链 / 签名 / 仅 DB？ | **已决** 2026-10-26（修订） | **哈希链** — 无事件签名 |
 | Q4 | 多租户模型？ | **已决** 2026-10-26 | **共享 schema + `tenant_id`** |
 | Q5 | GDPR / 留存策略？ | **已决** 2026-10-26 | **仅墓碑**（tombstone only; not crypto-shredding） |
 | Q6 | Outbox 传输？ | **已决** 2026-10-26 | **Postgres 轮询** outbox 表（when outbox is used） |

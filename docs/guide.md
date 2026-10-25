@@ -184,12 +184,26 @@ Flow: AfterCommit bag → `WithinTx` → UoW → for each command: Middleware �
 ```go
 Append(ctx, CommandRecord, []StreamAppend) error
 LoadStream(ctx, id) ([]event.Event, error)
+VerifyChain(ctx, aggregateID) error // memory + postgres
 ```
 
-Errors: `ErrOptimisticConcurrency`, `ErrUniqueKeyViolation`, `ErrStreamNotFound`.
+Errors: `ErrOptimisticConcurrency`, `ErrUniqueKeyViolation`, `ErrStreamNotFound`, `ErrHashChainTamper`, `ErrHashChainIncomplete`.
 
 - **memory** — unit/IT  
-- **postgres** — `Open` + `Migrate` (schemas `001`–`004`); also `TxManager` + `SnapshotStore`
+- **postgres** — `Open` + `Migrate` (schemas `001`–`005`); also `TxManager` + `SnapshotStore`
+
+### Hash chain (Q3)
+
+Per-aggregate SHA-256 chain: each row stores `prev_hash` + `event_hash`. Seq 1 uses genesis (32 zero bytes) as `prev_hash`. Canonical input (UTF-8 lines joined by `\n`, no trailing newline):
+
+1. `event_type`
+2. `aggregate_id` (UUID string)
+3. `sequence_number` (decimal)
+4. `created_at` (UTC RFC3339Nano)
+5. `event_json` (exact stored payload bytes)
+6. `prev_hash` as 64 lowercase hex
+
+`event_hash = SHA-256(input)`. Formula lives in `eventstore/hashchain`. **No** event signatures. `LoadStream` verifies the chain; call `VerifyChain` for an explicit check. Tamper → `ErrHashChainTamper`.
 
 ---
 
@@ -247,7 +261,7 @@ Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; 
 
 ## 16. AuthZ
 
-`security.Authorizer` via `WithAuthorizer` or middleware. Built-ins: `AllowAll`, `DenyByDefault`. Check `errors.Is(err, security.ErrDenied)`. No event hash-chain/signatures (Q3).
+`security.Authorizer` via `WithAuthorizer` or middleware. Built-ins: `AllowAll`, `DenyByDefault`. Check `errors.Is(err, security.ErrDenied)`. Hash chain yes; **no** event signatures (Q3).
 
 ---
 
@@ -282,7 +296,7 @@ Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/wenweih/go-seq
 
 **What it does not do:** Replace the business audit trail; auto-instrument HTTP/gRPC, projectors, or the outbox poller; ship an exporter; own the Provider (the app does). `RecordEvents` exists but is **not** auto-hooked on append (see below).
 
-**Locked decisions:** Observability hooks only. Event integrity remains **DB-only** (Q3); delivery shape remains a **pure library** (Q7) — export stays in the host process.
+**Locked decisions:** Observability hooks only. Event integrity is **hash chain** (Q3); delivery shape remains a **pure library** (Q7) — export stays in the host process.
 
 ### Wiring
 
@@ -419,7 +433,8 @@ GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 | AggregateObserver | Not productized |
 | ValueObject type system | Plain Go + `types.Money` |
 | Default message bus / LISTEN/NOTIFY | Optional outbox **polling** |
-| Event hash-chain / signatures | **Out of scope** (Q3) |
+| Event hash-chain | **Implemented** (Q3) |
+| Event signatures | **Out of scope** (Q3) |
 | Import Sequent DB | **Forbidden** (Q9) |
 | HTTP/gRPC stubs | **None** (Q7) |
 
@@ -459,7 +474,12 @@ Past-tense fact with type name and envelope (aggregate id, sequence, time). Stor
 <a id="gloss-eventstore"></a>
 
 **EventStore**  
-Persists command records and aggregate streams with OCC and unique-key checks. Implementations: memory, postgres. Apps usually go through the Repository.
+Persists command records and aggregate streams with OCC, unique-key checks, and a per-aggregate [hash chain](#gloss-hash-chain). Implementations: memory, postgres. Apps usually go through the Repository.
+
+<a id="gloss-hash-chain"></a>
+
+**Hash chain**  
+Q3 integrity: each event stores `prev_hash` + `event_hash` (SHA-256 over canonical fields in `eventstore/hashchain`). Chain is **per aggregate stream**; genesis prev is 32 zero bytes. Verified on load / `VerifyChain`. Detects tampering; **not** event signatures. Adds write-path and verify cost.
 
 <a id="gloss-uow"></a>
 
@@ -534,7 +554,7 @@ After a successful write, the same client’s read should see that update. Ledge
 <a id="gloss-authz"></a>
 
 **AuthZ**  
-Authorization at the command boundary (`security.Authorizer` / `WithAuthorizer`). Denials → `ErrDenied`. Separate from AuthN; no event signing (Q3).
+Authorization at the command boundary (`security.Authorizer` / `WithAuthorizer`). Denials → `ErrDenied`. Separate from AuthN; hash chain in EventStore; no event signing (Q3).
 
 <a id="gloss-meta"></a>
 
@@ -564,7 +584,7 @@ Optional write-path telemetry (latency, outcome, OCC, optional outbox depth). **
 |---|--------|
 | Q1 | [Ledger projections](#gloss-ledger-projection) **SyncInTxn** |
 | Q2 | Money = **decimal** (ban float64) |
-| Q3 | Integrity = **DB only** |
+| Q3 | Integrity = **hash chain** (no signatures) |
 | Q4 | Tenancy = **shared schema + tenant_id** |
 | Q5 | GDPR = **tombstone only** |
 | Q6 | Outbox = **Postgres table polling** |

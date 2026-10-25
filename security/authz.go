@@ -1,5 +1,5 @@
 // Package security provides AuthZ hooks at the command boundary (design §8).
-// Event signing / hash chains are intentionally out of scope (Q3).
+// Event signing is out of scope (Q3). Hash chains live in eventstore/hashchain.
 package security
 
 import (

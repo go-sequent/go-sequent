@@ -8,4 +8,4 @@
 | [partitioning.zh.md](./partitioning.zh.md) | 共享 schema 分区指引（Q4） |
 | [sql/](./sql/) | 可选分区 SQL 示例 |
 
-**已锁定：** 账本 SyncInTxn（Q1）· 完整性仅 DB（Q3）· 共享 schema + `tenant_id`（Q4）· Outbox 表轮询（Q6）· 永不导入 Ruby Sequent 库（Q9）。
+**已锁定：** 账本 SyncInTxn（Q1）· 完整性哈希链（Q3，无签名）· 共享 schema + `tenant_id`（Q4）· Outbox 表轮询（Q6）· 永不导入 Ruby Sequent 库（Q9）。

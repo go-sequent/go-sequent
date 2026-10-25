@@ -13,4 +13,10 @@ var (
 
 	// ErrStreamNotFound is returned when loading an unknown aggregate.
 	ErrStreamNotFound = errors.New("eventstore: stream not found")
+
+	// ErrHashChainTamper is returned when event hash chain verification fails (Q3).
+	ErrHashChainTamper = errors.New("eventstore: hash chain integrity failure")
+
+	// ErrHashChainIncomplete is returned when hash columns are missing.
+	ErrHashChainIncomplete = errors.New("eventstore: hash chain incomplete")
 )

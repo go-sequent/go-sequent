@@ -13,7 +13,7 @@ The PostgreSQL event store is the **crown jewel**. Projections are disposable; e
 | Projection / view tables | Low — rebuild via replay |
 | `event_tombstones` | Medium (GDPR audit trail, Q5) |
 
-Integrity is **DB controls only** (Q3): rely on ACLs, backups, optional WORM / immutable storage — **no** framework hash chain or signatures.
+Integrity uses **hash chain** (Q3) plus ACLs/backups/optional WORM — **no** event signatures.
 
 ## Continuous backup
 

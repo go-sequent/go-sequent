@@ -4,6 +4,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/wenweih/go-sequent/event"
 	"github.com/wenweih/go-sequent/event/upcast"
 	"github.com/wenweih/go-sequent/eventstore"
+	"github.com/wenweih/go-sequent/eventstore/hashchain"
 )
 
 // Store is a concurrency-safe in-memory event store.
@@ -41,6 +43,8 @@ type storedEvent struct {
 	CreatedAt   time.Time
 	CommandID   uuid.UUID
 	TenantID    uuid.UUID
+	PrevHash    []byte
+	EventHash   []byte
 }
 
 type storedCommand struct {
@@ -125,6 +129,10 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			cur = &stream{aggregateType: st.AggregateType, partitionKey: st.PartitionKey}
 			s.streams[st.AggregateID] = cur
 		}
+		prevHash := append([]byte(nil), hashchain.Genesis...)
+		if len(cur.events) > 0 {
+			prevHash = append([]byte(nil), cur.events[len(cur.events)-1].EventHash...)
+		}
 		for _, e := range st.Events {
 			payload, err := json.Marshal(e)
 			if err != nil {
@@ -134,6 +142,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			if created.IsZero() {
 				created = time.Now().UTC()
 			}
+			eventHash := hashchain.Compute(e.EventType(), st.AggregateID, e.SequenceNumber(), created, payload, prevHash)
 			cur.events = append(cur.events, storedEvent{
 				Type:        e.EventType(),
 				Payload:     payload,
@@ -142,7 +151,10 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 				CreatedAt:   created,
 				CommandID:   cmd.ID,
 				TenantID:    cmd.TenantID,
+				PrevHash:    append([]byte(nil), prevHash...),
+				EventHash:   eventHash,
 			})
+			prevHash = eventHash
 		}
 		s.applyUniqueKeys(st)
 		tip := int64(0)
@@ -202,7 +214,7 @@ func (s *Store) applyUniqueKeys(st eventstore.StreamAppend) {
 	}
 }
 
-// LoadStream implements eventstore.Store.
+// LoadStream implements eventstore.Store and verifies the hash chain (Q3).
 func (s *Store) LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -210,7 +222,43 @@ func (s *Store) LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.
 	if !ok || len(st.events) == 0 {
 		return nil, eventstore.ErrStreamNotFound
 	}
+	if err := s.verifyLocked(st); err != nil {
+		return nil, err
+	}
 	return s.decode(st.events)
+}
+
+// VerifyChain validates the per-aggregate SHA-256 hash chain (Q3).
+func (s *Store) VerifyChain(ctx context.Context, aggregateID uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.streams[aggregateID]
+	if !ok || len(st.events) == 0 {
+		return eventstore.ErrStreamNotFound
+	}
+	return s.verifyLocked(st)
+}
+
+func (s *Store) verifyLocked(st *stream) error {
+	links := make([]hashchain.Link, 0, len(st.events))
+	for _, se := range st.events {
+		links = append(links, hashchain.Link{
+			EventType:   se.Type,
+			AggregateID: se.AggregateID,
+			Seq:         se.Seq,
+			CreatedAt:   se.CreatedAt,
+			EventJSON:   se.Payload,
+			PrevHash:    se.PrevHash,
+			EventHash:   se.EventHash,
+		})
+	}
+	if err := hashchain.VerifyStream(links); err != nil {
+		if errors.Is(err, hashchain.ErrIncomplete) {
+			return fmt.Errorf("%w: %v", eventstore.ErrHashChainIncomplete, err)
+		}
+		return fmt.Errorf("%w: %v", eventstore.ErrHashChainTamper, err)
+	}
+	return nil
 }
 
 // LoadStreams implements eventstore.Store.

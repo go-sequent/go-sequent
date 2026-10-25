@@ -17,6 +17,7 @@ import (
 	"github.com/wenweih/go-sequent/event"
 	"github.com/wenweih/go-sequent/event/upcast"
 	"github.com/wenweih/go-sequent/eventstore"
+	"github.com/wenweih/go-sequent/eventstore/hashchain"
 )
 
 //go:embed schema/001_phase1.sql
@@ -30,6 +31,9 @@ var schemaStoreEvents string
 
 //go:embed schema/004_phase3.sql
 var schemaPhase3 string
+
+//go:embed schema/005_hash_chain.sql
+var schemaHashChain string
 
 type txKey struct{}
 
@@ -74,9 +78,9 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // SetUpcasters attaches event payload upcasters (v0).
 func (s *Store) SetUpcasters(c *upcast.Chain) { s.upcasters = c }
 
-// Migrate applies Phase 1–3 schema SQL and store_events procedure.
+// Migrate applies Phase 1–3 schema SQL, store_events, and hash-chain columns (Q3).
 func (s *Store) Migrate(ctx context.Context) error {
-	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3} {
+	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3, schemaHashChain} {
 		if _, err := s.pool.Exec(ctx, sql); err != nil {
 			return fmt.Errorf("postgres: migrate step %d: %w", i+1, err)
 		}
@@ -193,6 +197,21 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			return eventstore.ErrOptimisticConcurrency
 		}
 
+		prevHash := append([]byte(nil), hashchain.Genesis...)
+		if tip > 0 {
+			var tipHash []byte
+			err = db.QueryRow(ctx, `
+				SELECT event_hash FROM events
+				WHERE aggregate_id = $1 AND sequence_number = $2`,
+				st.AggregateID, tip).Scan(&tipHash)
+			if err != nil {
+				return fmt.Errorf("postgres: load tip hash: %w", err)
+			}
+			if len(tipHash) > 0 {
+				prevHash = tipHash
+			}
+		}
+
 		var lastSeq int64 = tip
 		for _, e := range st.Events {
 			evtTypeID, err := s.ensureType(ctx, db, "event_types", e.EventType(), &s.evtTypes)
@@ -207,10 +226,11 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			if created.IsZero() {
 				created = time.Now().UTC()
 			}
+			eventHash := hashchain.Compute(e.EventType(), st.AggregateID, e.SequenceNumber(), created, payload, prevHash)
 			_, err = db.Exec(ctx, `
-				INSERT INTO events (aggregate_id, partition_key, sequence_number, created_at, command_id, event_type_id, event_json, tenant_id)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-				st.AggregateID, pk, e.SequenceNumber(), created, cmd.ID, evtTypeID, payload, tenant,
+				INSERT INTO events (aggregate_id, partition_key, sequence_number, created_at, command_id, event_type_id, event_json, tenant_id, prev_hash, event_hash)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+				st.AggregateID, pk, e.SequenceNumber(), created, cmd.ID, evtTypeID, payload, tenant, prevHash, eventHash,
 			)
 			if err != nil {
 				var pgErr *pgconn.PgError
@@ -219,6 +239,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 				}
 				return fmt.Errorf("postgres: insert event: %w", err)
 			}
+			prevHash = eventHash
 			lastSeq = e.SequenceNumber()
 		}
 		if err := s.updateUniqueKeys(ctx, db, st); err != nil {
@@ -309,8 +330,14 @@ func (s *Store) ensureType(ctx context.Context, db q, table, name string, cache 
 	return id, nil
 }
 
-// LoadStream implements eventstore.Store.
+// LoadStream implements eventstore.Store and verifies the hash chain (Q3).
 func (s *Store) LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.Event, error) {
+	if err := s.VerifyChain(ctx, aggregateID); err != nil {
+		if errors.Is(err, eventstore.ErrStreamNotFound) {
+			return nil, err
+		}
+		return nil, err
+	}
 	db := s.querier(ctx)
 	rows, err := db.Query(ctx, `
 		SELECT et.type, e.event_json, e.sequence_number, e.aggregate_id, e.created_at
@@ -364,6 +391,43 @@ func (s *Store) LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.
 		return nil, eventstore.ErrStreamNotFound
 	}
 	return out, nil
+}
+
+// VerifyChain validates the per-aggregate SHA-256 hash chain (Q3).
+func (s *Store) VerifyChain(ctx context.Context, aggregateID uuid.UUID) error {
+	db := s.querier(ctx)
+	rows, err := db.Query(ctx, `
+		SELECT et.type, e.event_json, e.sequence_number, e.aggregate_id, e.created_at, e.prev_hash, e.event_hash
+		FROM events e
+		JOIN event_types et ON et.id = e.event_type_id
+		WHERE e.aggregate_id = $1
+		ORDER BY e.sequence_number`, aggregateID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var links []hashchain.Link
+	for rows.Next() {
+		var l hashchain.Link
+		if err := rows.Scan(&l.EventType, &l.EventJSON, &l.Seq, &l.AggregateID, &l.CreatedAt, &l.PrevHash, &l.EventHash); err != nil {
+			return err
+		}
+		links = append(links, l)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(links) == 0 {
+		return eventstore.ErrStreamNotFound
+	}
+	if err := hashchain.VerifyStream(links); err != nil {
+		if errors.Is(err, hashchain.ErrIncomplete) {
+			return fmt.Errorf("%w: %v", eventstore.ErrHashChainIncomplete, err)
+		}
+		return fmt.Errorf("%w: %v", eventstore.ErrHashChainTamper, err)
+	}
+	return nil
 }
 
 // LoadStreams implements eventstore.Store.

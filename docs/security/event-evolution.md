@@ -39,7 +39,7 @@ Example: rename field `amt` → `amount` and type `bank.MoneyDeposited.v0` → `
 ## Forbidden
 
 - Silent UPDATE/DELETE of event rows for business corrections (use compensating events).
-- Hash-chain / signature schemes as framework features (Q3).
+- Event signatures as framework features (Q3). Hash chain is implemented.
 - Crypto-shredding as the GDPR product path (Q5 — tombstone only).
 - Loading Sequent Ruby SQL dumps into go-sequent schemas (Q9).
 
