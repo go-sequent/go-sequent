@@ -1,6 +1,6 @@
-# Getting started — go-sequent (Phase 1 + 2)
+# Getting started — go-sequent (Phase 1–3)
 
-This guide wires a bank/ledger flow: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2 Sequent-parity features.
+Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2 parity and Phase 3 finance-ready hooks.
 
 ## Install
 
@@ -8,117 +8,111 @@ This guide wires a bank/ledger flow: **Command → Aggregate → EventStore → 
 go get github.com/wenweih/go-sequent@latest
 ```
 
-(Private module: use a `GOPRIVATE` / replace directive as needed.)
+(Private module: use `GOPRIVATE` / `replace` as needed.)
 
 ## Core loop
 
-1. Define **Events** (past tense) and register factories on `event.Registry`.
-2. Embed `aggregate.Base`, register `On(event, applier)`, mutate state **only** in appliers.
-3. Define **Commands** + a `command.Handler` that `Repo.Add` / `Repo.Load` and calls domain methods.
-4. Register a **Projector** on `publish.SyncInTxn` (default) so ledger balances update in the **same DB transaction** as the append (Q1).
+1. Define **Events** and register factories on `event.Registry`.
+2. Embed `aggregate.Base`; mutate state **only** in appliers.
+3. Define **Commands** + `command.Handler`.
+4. Register **Projectors** on `SyncInTxn` (Q1 — ledger balances in the write txn).
 5. Call `CommandService.Execute(ctx, cmds...)`.
 
-## Money
+## Money (Q2)
 
-Use `types.Money` (shopspring/decimal). **Do not** put `float64` on command/event money fields.
+Use `types.Money` (decimal string JSON). **Never** `float64` for money.
 
 ```go
 opening := types.MustMoney("100.00", "CNY")
+rounded := opening.Round(2)
+_ = types.AssertNoFloatMoney(myCommand) // startup / test lint
 ```
 
-## Minimal example (in-memory)
+## Phase 3 — finance-ready
 
-The in-repo demo is `examples/bank`. Sketch:
+### Tenant-scoped idempotency (Q4)
 
 ```go
-app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn})
-bank.RegisterEvents(app.Events)
-store := memory.New(app.Events)
-app.Repo.Store = store
-app.Repo.Snapshots = store // optional JSON snapshots
-app.Repo.Publisher = app.Publisher
-app.Service.Tx = store
-app.Service.Repo = app.Repo
-
-app.RegisterAggregate(bank.AggregateAccount, func(id uuid.UUID) aggregate.Root {
-    return bank.NewAccount(id)
-})
-app.RegisterProjector(bank.NewBalanceProjector())
-app.RegisterWorkflow(&bank.NotifyWorkflow{}) // excluded from projection rebuild
-app.RegisterHandler(&bank.Handler{Repo: app.Repo})
-
-err := app.Service.Execute(ctx, &bank.OpenAccount{
-    AccountID: id,
-    Owner:     "alice",
-    Currency:  "CNY",
-    Opening:   types.MustMoney("100.00", "CNY"),
-})
+idemp := idempotency.NewMemory() // or idempotency.NewPostgres(pool)
+app := sequent.New(cfg, sequent.WithIdempotency(idemp, false))
+cmd.Meta().TenantID = tenant
+cmd.Meta().IdempotencyKey = "client-key-1"
 ```
 
-## Phase 2 features
+Retries with the same `(tenant_id, key)` are no-ops after success.
 
-### Snapshots (JSON, Q8)
-
-Implement `SnapshotVersion` / `MarshalSnapshot` / `UnmarshalSnapshot` on aggregates. Wire `Repo.Snapshots` and run `snapshot.Snapshotter` in the background.
-
-### Unique keys
-
-Override `UniqueKeys() map[string]any` (scope → value). Collisions return `eventstore.ErrUniqueKeyViolation`.
-
-### Workflows + AfterCommit
+### AuthZ + audit meta
 
 ```go
-workflow.RegisterAfterCommit(ctx, func(ctx context.Context) error {
-    // side effect after successful txn commit
-    return nil
-})
+app := sequent.New(cfg, sequent.WithAuthorizer(security.DenyByDefault{
+    Allow: map[string]bool{"bank.Deposit": true},
+}))
+audit := command.AuditOf(cmd) // CommandID, TenantID, CorrelationID, Source, …
 ```
 
-### Upcasters v0
+### Payload encryption hooks (not crypto-shredding)
 
 ```go
-app.RegisterUpcaster(upcast.FuncUpcaster{From: "old.Type", Fn: ...})
-store.SetUpcasters(app.Upcasters)
+var protector crypto.PayloadProtector = crypto.Noop{}
+// Wire Protect/Unprotect around event JSON in your store path; GDPR = tombstone only (Q5).
 ```
 
-### Projection replay
+See `tombstone.Guide` and `tombstone.SubjectTombstoned`.
 
-Library API (`projector/replay.Pipeline`): **prepare → replay → catchup → optimize → golive**.
+### Outbox + Postgres polling (Q6)
+
+Ledger projectors stay **SyncInTxn**. For async fans:
+
+```go
+ob := outbox.NewMemory() // or outbox.NewPostgres(pool)
+pub := &publish.WithOutbox{Inner: app.Publisher, Writer: ob, Topic: "events"}
+app.Repo.Publisher = pub
+```
+
+Drain:
+
+```bash
+go run ./cmd/go-sequent outbox -dsn "$GO_SEQUENT_PG_DSN" -once
+# or long-running: omit -once
+```
+
+### OpenTelemetry
+
+```go
+inst, _ := obs.New(obs.Config{OutboxDepth: ob.Depth})
+app := sequent.New(cfg, sequent.WithObs(inst))
+```
+
+### Multi-tenant helpers
+
+```go
+tenancy.UniqueScope(tenantID, "email")
+tenancy.PartitionKeyHashed(tenantID, "shard-a")
+tenancy.MatchAggregateTenant(cmdTenant, agg.PartitionKey())
+```
+
+**No** event hash-chain or signatures (Q3).
+
+## Ops CLI
 
 ```bash
 go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances -stage prepare -tables account_balances
+go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances -stage prepare -tables t1
+go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
 ```
 
-Full event replay needs your app to wire `EventSource` + `SyncInTxn` projectors into `replay.Pipeline` (CLI covers schema stages + migrate).
-
-### Postgres migrate
-
-`store.Migrate(ctx)` applies `001_phase1.sql`, `002_phase2.sql` (snapshots, unique keys, outbox stub, replay state), and `003_store_events.sql` (`go_sequent_store_events` procedure).
-
-## Aggregate tests (testkit)
-
-```go
-s := testkit.For(id, func(id uuid.UUID) aggregate.Root {
-    return bank.NewAccount(id)
-}).Given(
-    bank.NewAccountOpened("dave", "USD", types.MustMoney("10", "USD")),
-).When(func(agg aggregate.Root) error {
-    return agg.(*bank.Account).Withdraw(types.MustMoney("20", "USD"))
-}).Run()
-
-_ = s.ExpectError("insufficient funds")
-```
+`store.Migrate` applies schemas through Phase 3 (`004_phase3.sql`).
 
 ## Locked defaults
 
 | Topic | Choice |
 |-------|--------|
-| Projections | Sync in write txn (Q1) |
-| Money | Decimal (`types.Money`) (Q2) |
-| Integrity | DB controls only (Q3) |
+| Projections | SyncInTxn for ledgers (Q1) |
+| Money | Decimal (Q2) |
+| Integrity | DB only — no hash/sign (Q3) |
 | Tenancy | Shared schema + `tenant_id` (Q4) |
-| Snapshots | JSON (Q8) |
+| GDPR | Tombstone only (Q5) |
+| Outbox | Postgres table polling (Q6) |
 | Shape | Pure library; ops CLI OK (Q7) |
 
-See [design.md](./design.md) §9–§10 for the full roadmap and decisions.
+See [design.md](./design.md) §6–§10.

@@ -7,7 +7,10 @@ import (
 	"github.com/wenweih/go-sequent/event"
 	"github.com/wenweih/go-sequent/event/upcast"
 	"github.com/wenweih/go-sequent/eventstore"
+	"github.com/wenweih/go-sequent/idempotency"
+	"github.com/wenweih/go-sequent/obs"
 	"github.com/wenweih/go-sequent/publish"
+	"github.com/wenweih/go-sequent/security"
 	"github.com/wenweih/go-sequent/workflow"
 )
 
@@ -33,6 +36,7 @@ type App struct {
 	Repo      *aggregate.Repository
 	Publisher *publish.SyncInTxn
 	Service   *command.Service
+	Obs       *obs.Instruments
 }
 
 // Option configures App construction.
@@ -47,6 +51,31 @@ func WithStore(store eventstore.Store, tx eventstore.TxManager) Option {
 		if snaps, ok := store.(eventstore.SnapshotStore); ok {
 			a.Repo.Snapshots = snaps
 		}
+	}
+}
+
+// WithAuthorizer installs AuthZ as a command filter.
+func WithAuthorizer(auth security.Authorizer) Option {
+	return func(a *App) {
+		a.Service.Filters = append(a.Service.Filters, security.Filter{Auth: auth})
+	}
+}
+
+// WithIdempotency installs tenant-scoped idempotency middleware.
+func WithIdempotency(store idempotency.Store, strict bool) Option {
+	return func(a *App) {
+		a.Service.Middleware = append(a.Service.Middleware, idempotency.Middleware(idempotency.Config{
+			Store:  store,
+			Strict: strict,
+		}))
+	}
+}
+
+// WithObs attaches OpenTelemetry instruments to CommandService.
+func WithObs(inst *obs.Instruments) Option {
+	return func(a *App) {
+		a.Obs = inst
+		a.Service.Obs = inst
 	}
 }
 

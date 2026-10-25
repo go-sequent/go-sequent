@@ -28,6 +28,9 @@ var schemaPhase2 string
 //go:embed schema/003_store_events.sql
 var schemaStoreEvents string
 
+//go:embed schema/004_phase3.sql
+var schemaPhase3 string
+
 type txKey struct{}
 
 // Store is a PostgreSQL-backed event store.
@@ -71,9 +74,9 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // SetUpcasters attaches event payload upcasters (v0).
 func (s *Store) SetUpcasters(c *upcast.Chain) { s.upcasters = c }
 
-// Migrate applies Phase 1+2 schema SQL and store_events procedure.
+// Migrate applies Phase 1–3 schema SQL and store_events procedure.
 func (s *Store) Migrate(ctx context.Context) error {
-	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents} {
+	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3} {
 		if _, err := s.pool.Exec(ctx, sql); err != nil {
 			return fmt.Errorf("postgres: migrate step %d: %w", i+1, err)
 		}

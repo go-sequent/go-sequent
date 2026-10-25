@@ -1,4 +1,4 @@
-// Command go-sequent provides migrate and projection-replay CLI (pure library ops; Q7).
+// Command go-sequent provides migrate, projection-replay, and outbox poller CLI (Q7).
 package main
 
 import (
@@ -6,11 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/wenweih/go-sequent/event"
 	"github.com/wenweih/go-sequent/eventstore/postgres"
 	"github.com/wenweih/go-sequent/projector/replay"
+	"github.com/wenweih/go-sequent/publish/outbox"
 )
 
 func main() {
@@ -36,7 +40,7 @@ func main() {
 		if err := store.Migrate(ctx); err != nil {
 			fail(err.Error())
 		}
-		fmt.Println("migrate: ok (phase1+phase2+store_events)")
+		fmt.Println("migrate: ok (phase1–3 + store_events)")
 	case "replay":
 		fs := flag.NewFlagSet("replay", flag.ExitOnError)
 		dsn := fs.String("dsn", envOr("GO_SEQUENT_PG_DSN", ""), "Postgres DSN")
@@ -67,8 +71,6 @@ func main() {
 			ManagedTables: managed,
 			Schema:        &replay.PostgresSchema{Pool: store.Pool()},
 			State:         replay.NewMemoryState(),
-			// Source/Publisher must be wired by the application for full event replay.
-			// Schema-only stages (prepare/optimize/golive/abort) work without them.
 		}
 		if *replaySchema == "" {
 			pipe.ReplaySchema = "replay_" + *name
@@ -94,6 +96,46 @@ func main() {
 		default:
 			fail("unknown stage " + *stage)
 		}
+	case "outbox":
+		fs := flag.NewFlagSet("outbox", flag.ExitOnError)
+		dsn := fs.String("dsn", envOr("GO_SEQUENT_PG_DSN", ""), "Postgres DSN")
+		once := fs.Bool("once", false, "process one batch and exit")
+		interval := fs.Duration("interval", time.Second, "poll interval")
+		batch := fs.Int("batch", 10, "claim batch size")
+		_ = fs.Parse(os.Args[2:])
+		if *dsn == "" {
+			fail("-dsn or GO_SEQUENT_PG_DSN required")
+		}
+		reg := event.NewRegistry()
+		store, err := postgres.Open(ctx, *dsn, reg)
+		if err != nil {
+			fail(err.Error())
+		}
+		defer store.Close()
+		ob := outbox.NewPostgres(store.Pool())
+		poller := &outbox.Poller{
+			Store:     ob,
+			BatchSize: *batch,
+			Interval:  *interval,
+			Handler: func(ctx context.Context, msg outbox.Message) error {
+				fmt.Printf("outbox: deliver id=%d topic=%s type=%s\n", msg.ID, msg.Topic, msg.EventType)
+				return nil
+			},
+		}
+		if *once {
+			n, err := poller.RunOnce(ctx)
+			if err != nil {
+				fail(err.Error())
+			}
+			fmt.Printf("outbox: processed %d\n", n)
+			return
+		}
+		ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		fmt.Println("outbox: polling (ctrl-c to stop)")
+		if err := poller.Run(ctx); err != nil && ctx.Err() == nil {
+			fail(err.Error())
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -103,14 +145,15 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `go-sequent — ops CLI (migrate / projection replay)
+	fmt.Fprintf(os.Stderr, `go-sequent — ops CLI (migrate / replay / outbox poller)
 
 Usage:
   go-sequent migrate -dsn $GO_SEQUENT_PG_DSN
   go-sequent replay -dsn $DSN -projector NAME -stage prepare|optimize|golive|abort [-tables t1,t2]
+  go-sequent outbox -dsn $DSN [-once] [-interval 1s] [-batch 10]
 
-Full event replay (prepare→replay→catchup→optimize→golive) is driven from application
-code via projector/replay.Pipeline with an EventSource + SyncInTxn projectors.
+Outbox drain uses Postgres table polling (Q6). Replace the default print handler
+in your own binary for real delivery. Ledger projectors stay SyncInTxn (Q1).
 
 `)
 }

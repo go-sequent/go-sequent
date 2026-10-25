@@ -2,12 +2,16 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wenweih/go-sequent/aggregate"
 	"github.com/wenweih/go-sequent/eventstore"
+	"github.com/wenweih/go-sequent/obs"
 	"github.com/wenweih/go-sequent/workflow"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Committer commits the UoW for a command (typically *aggregate.Repository).
@@ -23,6 +27,7 @@ type Service struct {
 	Router     *Router
 	Repo       Committer
 	Tx         eventstore.TxManager
+	Obs        *obs.Instruments // optional
 }
 
 // Execute runs one or more commands in a single transaction / UoW.
@@ -42,6 +47,16 @@ func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 	copy(queue, cmds)
 
 	ctx, hooks := workflow.WithHooks(ctx)
+
+	label := cmds[0].CommandType()
+	if len(cmds) > 1 {
+		label = label + "+batch"
+	}
+	started := time.Now()
+	var span trace.Span
+	if s.Obs != nil {
+		ctx, span = s.Obs.StartCommand(ctx, label)
+	}
 
 	err := s.Tx.WithinTx(ctx, func(ctx context.Context) error {
 		uow := aggregate.NewUnitOfWork()
@@ -70,6 +85,9 @@ func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 				}
 				if s.Repo != nil {
 					if err := s.Repo.Commit(ctx, RecordOf(cmd)); err != nil {
+						if errors.Is(err, eventstore.ErrOptimisticConcurrency) && s.Obs != nil {
+							s.Obs.RecordConflict(ctx)
+						}
 						return err
 					}
 				}
@@ -82,6 +100,11 @@ func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 		}
 		return nil
 	})
+
+	if s.Obs != nil {
+		s.Obs.RecordCommand(ctx, span, label, started, err)
+	}
+
 	if err != nil {
 		return err
 	}
