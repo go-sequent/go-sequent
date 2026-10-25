@@ -52,8 +52,17 @@ go get github.com/wenweih/go-sequent@latest
 | **AuthZ + 审计** | `WithAuthorizer`；`command.AuditOf(cmd)` |
 | **加密钩子 / 墓碑** | `crypto.PayloadProtector`；GDPR = **仅墓碑**（Q5） |
 | **Outbox 轮询**（Q6） | `publish.WithOutbox` + CLI `outbox`；账本仍 SyncInTxn |
-| **OpenTelemetry** | `obs.New` + `WithObs` |
+| **OpenTelemetry** | `obs.New` + `WithObs`（应用自配 Provider；详见 [指南 §19](./guide.zh.md#19-opentelemetryobs)） |
 | **禁止** | 事件哈希链/签名（Q3） |
+
+### OpenTelemetry 最小接线
+
+应用自行设置全局 Tracer/Meter（库用全局；未设则为 noop）。**无**内置 OTLP exporter。`RecordEvents` **不会**在 append 路径自动调用。完整指标/span 表见 [指南 §19](./guide.zh.md#19-opentelemetryobs)。
+
+```go
+inst, _ := obs.New(obs.Config{OutboxDepth: ob.Depth}) // OutboxDepth 可选
+app := sequent.New(cfg, sequent.WithObs(inst))         // 写入 Service.Obs，非 middleware
+```
 
 ## Phase 4 — 生产加固
 

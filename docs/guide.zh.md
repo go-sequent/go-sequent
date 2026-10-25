@@ -26,13 +26,14 @@
 16. [AuthZ](#16-authz)
 17. [Tenancy](#17-tenancy)
 18. [Money（decimal）](#18-moneydecimal)
-19. [Migrations 与 Ops CLI](#19-migrations-与-ops-cli)
-20. [Wiring：`sequent` 门面](#20-wiringsequent-门面)
-21. [Bank 示例 walkthrough](#21-bank-示例-walkthrough)
-22. [测试指引](#22-测试指引)
-23. [运维与安全文档指针](#23-运维与安全文档指针)
-24. [相对 Sequent Ruby：未实现 / 阶段边界](#24-相对-sequent-ruby未实现--阶段边界)
-25. [锁定决策摘要（Q1–Q10）](#25-锁定决策摘要q1q10)
+19. [OpenTelemetry（obs）](#19-opentelemetryobs)
+20. [Migrations 与 Ops CLI](#20-migrations-与-ops-cli)
+21. [Wiring：`sequent` 门面](#21-wiringsequent-门面)
+22. [Bank 示例 walkthrough](#22-bank-示例-walkthrough)
+23. [测试指引](#23-测试指引)
+24. [运维与安全文档指针](#24-运维与安全文档指针)
+25. [相对 Sequent Ruby：未实现 / 阶段边界](#25-相对-sequent-ruby未实现--阶段边界)
+26. [锁定决策摘要（Q1–Q10）](#26-锁定决策摘要q1q10)
 
 ---
 
@@ -246,7 +247,7 @@ svc.Execute(ctx, cmd1, cmd2, ...) // 单事务、单 UoW
 1. `tenancy.Middleware`（从 ctx 写入 `Meta.TenantID`）  
 2. `idempotency.Middleware`（需要 TenantID）
 
-**Filters**（如 `security.Filter`）在 terminal 内、Validate 之前运行。可选 `obs.Instruments` 记录命令耗时与冲突。
+**Filters**（如 `security.Filter`）在 terminal 内、Validate 之前运行。可选观测见 [§19 OpenTelemetry（obs）](#19-opentelemetryobs)（挂在 `Service.Obs`，**不是** middleware）。
 
 ---
 
@@ -420,7 +421,61 @@ JSON 金额为 **字符串**，禁止 `float64`。`types.AssertNoFloatMoney` / `
 
 ---
 
-## 19. Migrations 与 Ops CLI
+## 19. OpenTelemetry（obs）
+
+包：`obs`（`obs/otel.go`）。仪表名：`github.com/wenweih/go-sequent`。
+
+### 接线
+
+`obs` **不是** command middleware。通过 `sequent.WithObs(inst)` 写入 `App.Obs` 与 `command.Service.Obs`（`nil` 则无遥测）；也可直接赋值 `svc.Obs = inst`。
+
+`CommandService.Execute` 行为：
+
+1. `StartCommand` → span `sequent.Execute`
+2. 跑事务 / UoW
+3. Commit 若返回 `ErrOptimisticConcurrency` → `RecordConflict`
+4. 结束时 `RecordCommand`（延迟 + 计数，并 `span.End`）
+
+### 应用必须自行配置 Provider
+
+`obs.New` 使用 **全局** `otel.Tracer` / `otel.Meter`。未设置 TracerProvider / MeterProvider 时为 **noop**（测试可安全调用）。**库不捆绑** OTLP / Prometheus / stdout exporter——由宿主应用安装。
+
+```go
+// 应用侧：otel.SetTracerProvider / SetMeterProvider + 你的 exporter
+inst, err := obs.New(obs.Config{
+    OutboxDepth: ob.Depth, // 可选；nil 则不注册 sequent.outbox.depth
+})
+app := sequent.New(sequent.Config{},
+    sequent.WithObs(inst),
+    sequent.WithStore(store, tx),
+)
+```
+
+### 发出的 metrics / spans
+
+| 种类 | 名称 | 属性 / 说明 |
+|------|------|-------------|
+| Span | `sequent.Execute` | `command.type`；错误时 `RecordError` + status Error |
+| Histogram | `sequent.command.duration_ms` | `command.type`；单位 ms |
+| Counter | `sequent.command.total` | `command.type`，`status`=`ok` \| `error` |
+| Counter | `sequent.optimistic_conflict.total` | 无额外属性 |
+| Counter | `sequent.events.appended` | API 有；**框架未在 append 路径自动调用** |
+| Observable gauge | `sequent.outbox.depth` | 仅当 `Config.OutboxDepth != nil` |
+
+批量 `Execute` 时 `command.type` 为 `FirstType+batch`。
+
+公开 API：`Instruments`、`Config`、`New`、`StartCommand`、`RecordCommand`、`RecordConflict`、`RecordEvents`。
+
+### 未包含
+
+- 无内置 OTLP / Prometheus / stdout exporter；不创建 Provider
+- 无 HTTP/gRPC 自动埋点；无 projector / workflow / outbox poller 自动 span
+- **`RecordEvents` 未挂钩** `Repository.Commit` / `EventStore.Append`（目前仅测试调用；应用若需要可自行在边界调用）
+- 非 middleware 链式观测
+
+---
+
+## 20. Migrations 与 Ops CLI
 
 Postgres schema 随 `store.Migrate` 应用：`001_phase1` … `004_phase3`（含 outbox / 幂等 / 墓碑相关表）。分区示例 SQL 仅文档用途，见 `docs/ops/`。
 
@@ -438,7 +493,7 @@ GDPR：`tombstone` 包提供 `SubjectTombstoned` 与策略说明（**仅墓碑**
 
 ---
 
-## 20. Wiring：`sequent` 门面
+## 21. Wiring：`sequent` 门面
 
 包：`sequent`
 
@@ -461,7 +516,7 @@ Bank 演示封装：`bank.NewDemoApp(DemoOptions{StoreFactory, Idempotency, Auth
 
 ---
 
-## 21. Bank 示例 walkthrough
+## 22. Bank 示例 walkthrough
 
 路径：[`examples/bank/`](../examples/bank/)
 
@@ -487,7 +542,7 @@ GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bank/ -run TestIT_Postgres
 
 ---
 
-## 22. 测试指引
+## 23. 测试指引
 
 | 层级 | 做法 |
 |------|------|
@@ -505,7 +560,7 @@ go test ./...   # 无 DSN 必须绿
 
 ---
 
-## 23. 运维与安全文档指针
+## 24. 运维与安全文档指针
 
 | 主题 | 文档 |
 |------|------|
@@ -516,7 +571,7 @@ go test ./...   # 无 DSN 必须绿
 
 ---
 
-## 24. 相对 Sequent Ruby：未实现 / 阶段边界
+## 25. 相对 Sequent Ruby：未实现 / 阶段边界
 
 | Sequent（Ruby）概念 | go-sequent |
 |---------------------|------------|
@@ -534,7 +589,7 @@ Phase 边界简述：Phase 1 核心闭环 → Phase 2 快照/upcast/workflow/rep
 
 ---
 
-## 25. 锁定决策摘要（Q1–Q10）
+## 26. 锁定决策摘要（Q1–Q10）
 
 | # | 决策 |
 |---|------|

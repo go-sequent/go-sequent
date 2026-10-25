@@ -26,13 +26,14 @@ Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC
 16. [AuthZ](#16-authz)
 17. [Tenancy](#17-tenancy)
 18. [Money (decimal)](#18-money-decimal)
-19. [Migrations and ops CLI](#19-migrations-and-ops-cli)
-20. [Wiring: the `sequent` façade](#20-wiring-the-sequent-façade)
-21. [Bank example walkthrough](#21-bank-example-walkthrough)
-22. [Testing guidance](#22-testing-guidance)
-23. [Ops and security pointers](#23-ops-and-security-pointers)
-24. [Not implemented / Phase boundaries vs Sequent Ruby](#24-not-implemented--phase-boundaries-vs-sequent-ruby)
-25. [Locked decisions (Q1–Q10)](#25-locked-decisions-q1q10)
+19. [OpenTelemetry (`obs`)](#19-opentelemetry-obs)
+20. [Migrations and ops CLI](#20-migrations-and-ops-cli)
+21. [Wiring: the `sequent` façade](#21-wiring-the-sequent-façade)
+22. [Bank example walkthrough](#22-bank-example-walkthrough)
+23. [Testing guidance](#23-testing-guidance)
+24. [Ops and security pointers](#24-ops-and-security-pointers)
+25. [Not implemented / Phase boundaries vs Sequent Ruby](#25-not-implemented--phase-boundaries-vs-sequent-ruby)
+26. [Locked decisions (Q1–Q10)](#26-locked-decisions-q1q10)
 
 ---
 
@@ -170,7 +171,7 @@ svc.Execute(ctx, cmd1, cmd2, ...) // one txn, one UoW
 
 Flow: AfterCommit bag → `WithinTx` → UoW → for each command: Middleware → Filters → Validate → Dispatch → Commit → after success, AfterCommit.
 
-`Chain` runs **outer-first** (index 0 first). Bank demo order: **tenancy before idempotency** so `Meta.TenantID` is set. Optional `obs.Instruments` for timing/conflicts.
+`Chain` runs **outer-first** (index 0 first). Bank demo order: **tenancy before idempotency** so `Meta.TenantID` is set. Optional observability: see [§19 OpenTelemetry (`obs`)](#19-opentelemetry-obs) (field on `Service.Obs`, **not** middleware).
 
 ---
 
@@ -258,7 +259,61 @@ Shared schema + `tenant_id` (Q4). `tenancy.WithTenant` + middleware copies into 
 
 ---
 
-## 19. Migrations and ops CLI
+## 19. OpenTelemetry (`obs`)
+
+Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/wenweih/go-sequent`.
+
+### Wiring
+
+`obs` is **not** command middleware. Use `sequent.WithObs(inst)` to set `App.Obs` and `command.Service.Obs` (`nil` = no telemetry), or assign `svc.Obs = inst` directly.
+
+`CommandService.Execute`:
+
+1. `StartCommand` → span `sequent.Execute`
+2. Run txn / UoW
+3. On `ErrOptimisticConcurrency` from Commit → `RecordConflict`
+4. `RecordCommand` (latency + counters, then `span.End`)
+
+### App must configure providers
+
+`obs.New` uses the **global** `otel.Tracer` / `otel.Meter`. With no TracerProvider / MeterProvider set, instruments are **noop** (safe in tests). The library does **not** ship OTLP / Prometheus / stdout exporters — the host app installs them.
+
+```go
+// App-side: otel.SetTracerProvider / SetMeterProvider + your exporter
+inst, err := obs.New(obs.Config{
+    OutboxDepth: ob.Depth, // optional; nil skips sequent.outbox.depth
+})
+app := sequent.New(sequent.Config{},
+    sequent.WithObs(inst),
+    sequent.WithStore(store, tx),
+)
+```
+
+### Emitted metrics / spans
+
+| Kind | Name | Attributes / notes |
+|------|------|--------------------|
+| Span | `sequent.Execute` | `command.type`; on error `RecordError` + status Error |
+| Histogram | `sequent.command.duration_ms` | `command.type`; milliseconds |
+| Counter | `sequent.command.total` | `command.type`, `status`=`ok` \| `error` |
+| Counter | `sequent.optimistic_conflict.total` | no extra attributes |
+| Counter | `sequent.events.appended` | API exists; **framework does not auto-call on append** |
+| Observable gauge | `sequent.outbox.depth` | only if `Config.OutboxDepth != nil` |
+
+Batched `Execute` uses `command.type` = `FirstType+batch`.
+
+Public API: `Instruments`, `Config`, `New`, `StartCommand`, `RecordCommand`, `RecordConflict`, `RecordEvents`.
+
+### Not included
+
+- No bundled OTLP / Prometheus / stdout exporter; does not create providers
+- No HTTP/gRPC auto-instrumentation; no projector / workflow / outbox-poller spans
+- **`RecordEvents` is not hooked** into `Repository.Commit` / `EventStore.Append` (test-only today; apps may call it at their boundary)
+- Not middleware-chain based
+
+---
+
+## 20. Migrations and ops CLI
 
 `store.Migrate` applies `001`–`004`. Partition SQL under `docs/ops/` is example-only.
 
@@ -272,7 +327,7 @@ Full event replay needs an app-wired `projector/replay.Pipeline`. GDPR: `tombsto
 
 ---
 
-## 20. Wiring: the `sequent` façade
+## 21. Wiring: the `sequent` façade
 
 ```go
 app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn},
@@ -292,7 +347,7 @@ Bank helper: `bank.NewDemoApp` with `StoreFactory` so the store shares the app e
 
 ---
 
-## 21. Bank example walkthrough
+## 22. Bank example walkthrough
 
 Directory: [`examples/bank/`](../examples/bank/)
 
@@ -307,7 +362,7 @@ Read order: `commands` → `account` → `handler` → `projector` → `app` →
 
 ---
 
-## 22. Testing guidance
+## 23. Testing guidance
 
 | Level | Approach |
 |-------|----------|
@@ -321,7 +376,7 @@ Read order: `commands` → `account` → `handler` → `projector` → `app` →
 
 ---
 
-## 23. Ops and security pointers
+## 24. Ops and security pointers
 
 | Topic | Doc |
 |-------|-----|
@@ -332,7 +387,7 @@ Read order: `commands` → `account` → `handler` → `projector` → `app` →
 
 ---
 
-## 24. Not implemented / Phase boundaries vs Sequent Ruby
+## 25. Not implemented / Phase boundaries vs Sequent Ruby
 
 | Sequent Ruby | go-sequent |
 |--------------|------------|
@@ -350,7 +405,7 @@ Phases: 1 core loop → 2 snapshots/upcast/workflow/replay skeleton → 3 idempo
 
 ---
 
-## 25. Locked decisions (Q1–Q10)
+## 26. Locked decisions (Q1–Q10)
 
 | # | Choice |
 |---|--------|
