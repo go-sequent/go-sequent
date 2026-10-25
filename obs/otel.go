@@ -12,17 +12,17 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const instrumentationName = "github.com/wenweih/go-sequent"
+const instrumentationName = "github.com/go-sequent/go-sequent"
 
 // Instruments holds commonly used meters/tracers.
 type Instruments struct {
-	Tracer           trace.Tracer
-	CommandLatency   metric.Float64Histogram
-	CommandsTotal    metric.Int64Counter
-	ConflictsTotal   metric.Int64Counter
-	EventsAppended   metric.Int64Counter
-	OutboxDepth      metric.Int64ObservableGauge
-	outboxDepthFn    func(context.Context) int64
+	Tracer         trace.Tracer
+	CommandLatency metric.Float64Histogram
+	CommandsTotal  metric.Int64Counter
+	ConflictsTotal metric.Int64Counter
+	EventsAppended metric.Int64Counter
+	OutboxDepth    metric.Int64ObservableGauge
+	outboxDepthFn  func(context.Context) int64
 }
 
 // Config for New.

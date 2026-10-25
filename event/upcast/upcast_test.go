@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/wenweih/go-sequent/event/upcast"
+	"github.com/go-sequent/go-sequent/event/upcast"
 )
 
 func TestChainRenameField(t *testing.T) {

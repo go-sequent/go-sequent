@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/security"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/security"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func TestDenyByDefault(t *testing.T) {

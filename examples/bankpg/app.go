@@ -3,17 +3,17 @@ package bankpg
 import (
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/idempotency"
+	"github.com/go-sequent/go-sequent/obs"
+	"github.com/go-sequent/go-sequent/projector"
+	"github.com/go-sequent/go-sequent/security"
+	"github.com/go-sequent/go-sequent/sequent"
+	"github.com/go-sequent/go-sequent/tenancy"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/idempotency"
-	"github.com/wenweih/go-sequent/obs"
-	"github.com/wenweih/go-sequent/projector"
-	"github.com/wenweih/go-sequent/security"
-	"github.com/wenweih/go-sequent/sequent"
-	"github.com/wenweih/go-sequent/tenancy"
 )
 
 // Options configures a production-shaped Postgres bank app.

@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/snapshot"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore/memory"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/snapshot"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func TestTakeAndRehydrate(t *testing.T) {

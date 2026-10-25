@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/eventstore/memory"
-	"github.com/wenweih/go-sequent/event"
 )
 
 type pingCmd struct {

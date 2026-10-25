@@ -1,4 +1,4 @@
-module github.com/wenweih/go-sequent
+module github.com/go-sequent/go-sequent
 
 go 1.24.0
 

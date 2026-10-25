@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/publish/outbox"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/publish/outbox"
 )
 
 // WithOutbox wraps SyncInTxn so that after sync projectors/workflows run,
 // selected event types are also written to the transactional outbox (Q6).
 // Ledger projectors stay on SyncInTxn; outbox is for async / external fans.
 type WithOutbox struct {
-	Inner     *SyncInTxn
-	Writer    outbox.Writer
-	Topic     string
+	Inner      *SyncInTxn
+	Writer     outbox.Writer
+	Topic      string
 	EventTypes map[string]bool // if empty, all events are enqueued
 }
 

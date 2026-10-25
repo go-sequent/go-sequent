@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/projector"
+	"github.com/go-sequent/go-sequent/tenancy"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/projector"
-	"github.com/wenweih/go-sequent/tenancy"
-	"github.com/wenweih/go-sequent/types"
 )
 
 const tableBalances = "bank_account_balances"

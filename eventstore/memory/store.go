@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/event/upcast"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/eventstore/hashchain"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/event/upcast"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/eventstore/hashchain"
 )
 
 // Store is a concurrency-safe in-memory event store.

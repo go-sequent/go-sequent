@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore/postgres"
-	"github.com/wenweih/go-sequent/projector/replay"
-	"github.com/wenweih/go-sequent/publish/outbox"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore/postgres"
+	"github.com/go-sequent/go-sequent/projector/replay"
+	"github.com/go-sequent/go-sequent/publish/outbox"
 )
 
 func main() {

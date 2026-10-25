@@ -51,7 +51,7 @@ Covered scenarios: command → events → SyncInTxn projection, idempotent retry
 ## Install
 
 ```bash
-go get github.com/wenweih/go-sequent@latest
+go get github.com/go-sequent/go-sequent@latest
 ```
 
 (Private module: use `GOPRIVATE` / `replace` as needed.)

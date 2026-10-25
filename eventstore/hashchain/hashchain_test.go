@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sequent/go-sequent/eventstore/hashchain"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/eventstore/hashchain"
 )
 
 func TestComputeDeterministic(t *testing.T) {

@@ -3,14 +3,14 @@ package bank
 import (
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/idempotency"
+	"github.com/go-sequent/go-sequent/security"
+	"github.com/go-sequent/go-sequent/sequent"
+	"github.com/go-sequent/go-sequent/tenancy"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/idempotency"
-	"github.com/wenweih/go-sequent/security"
-	"github.com/wenweih/go-sequent/sequent"
-	"github.com/wenweih/go-sequent/tenancy"
 )
 
 // StoreFactory builds store backends bound to the app event registry.
@@ -26,10 +26,10 @@ type DemoOptions struct {
 	Tx        eventstore.TxManager
 	Snapshots eventstore.SnapshotStore
 	// Idempotency is used when set; otherwise IdempotencyFactory may build one after the store opens.
-	Idempotency          idempotency.Store
-	IdempotencyFactory   func(store eventstore.Store) idempotency.Store
-	Authorizer           security.Authorizer
-	EnableTenancyMW      bool
+	Idempotency        idempotency.Store
+	IdempotencyFactory func(store eventstore.Store) idempotency.Store
+	Authorizer         security.Authorizer
+	EnableTenancyMW    bool
 }
 
 // DemoApp is a wired bank demo with SyncInTxn balance projection.

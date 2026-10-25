@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/shopspring/decimal"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func TestMoneyRoundTripJSON(t *testing.T) {

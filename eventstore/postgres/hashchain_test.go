@@ -6,12 +6,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/eventstore/postgres"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/eventstore/postgres"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func TestIT_HashChain_Tamper(t *testing.T) {

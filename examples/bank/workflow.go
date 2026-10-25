@@ -4,14 +4,14 @@ import (
 	"context"
 	"sync"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/workflow"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/workflow"
 )
 
 // NotifyWorkflow records opened accounts and schedules an AfterCommit side effect.
 type NotifyWorkflow struct {
-	mu      sync.Mutex
-	Opened  []string
+	mu       sync.Mutex
+	Opened   []string
 	Notified []string
 }
 

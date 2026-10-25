@@ -2,16 +2,16 @@
 package sequent
 
 import (
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/event/upcast"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/idempotency"
-	"github.com/wenweih/go-sequent/obs"
-	"github.com/wenweih/go-sequent/publish"
-	"github.com/wenweih/go-sequent/security"
-	"github.com/wenweih/go-sequent/workflow"
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/event/upcast"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/idempotency"
+	"github.com/go-sequent/go-sequent/obs"
+	"github.com/go-sequent/go-sequent/publish"
+	"github.com/go-sequent/go-sequent/security"
+	"github.com/go-sequent/go-sequent/workflow"
 )
 
 // PublisherMode selects how events are published after append.

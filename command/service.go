@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/obs"
+	"github.com/go-sequent/go-sequent/workflow"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/obs"
-	"github.com/wenweih/go-sequent/workflow"
 	"go.opentelemetry.io/otel/trace"
 )
 

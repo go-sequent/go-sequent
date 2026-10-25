@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/command"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/command"
 )
 
 type ctxKey struct{}

@@ -42,7 +42,7 @@ GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disabl
 ## 安装
 
 ```bash
-go get github.com/wenweih/go-sequent@latest
+go get github.com/go-sequent/go-sequent@latest
 ```
 
 ## 金额（Q2）

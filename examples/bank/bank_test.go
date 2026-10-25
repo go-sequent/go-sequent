@@ -5,16 +5,16 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/sequent"
+	"github.com/go-sequent/go-sequent/snapshot"
+	"github.com/go-sequent/go-sequent/testkit"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/eventstore/memory"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/sequent"
-	"github.com/wenweih/go-sequent/snapshot"
-	"github.com/wenweih/go-sequent/testkit"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func newApp(t *testing.T) (*sequent.App, *bank.BalanceProjector, *memory.Store) {

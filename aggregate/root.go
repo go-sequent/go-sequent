@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/go-sequent/go-sequent/event"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
 )
 
 // Root is the AggregateRoot contract (design §3.3).
@@ -52,9 +52,9 @@ func (b *Base) Init(id uuid.UUID, aggregateType string) {
 	}
 }
 
-func (b *Base) ID() uuid.UUID              { return b.id }
-func (b *Base) AggregateType() string      { return b.aggregateType }
-func (b *Base) Version() int64             { return b.version }
+func (b *Base) ID() uuid.UUID         { return b.id }
+func (b *Base) AggregateType() string { return b.aggregateType }
+func (b *Base) Version() int64        { return b.version }
 func (b *Base) UncommittedEvents() []event.Event {
 	out := make([]event.Event, len(b.uncommitted))
 	copy(out, b.uncommitted)

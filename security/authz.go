@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/wenweih/go-sequent/command"
+	"github.com/go-sequent/go-sequent/command"
 )
 
 // ErrDenied is returned when authorization fails.

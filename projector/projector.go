@@ -4,8 +4,8 @@ package projector
 import (
 	"context"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/publish"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/publish"
 )
 
 // Projector projects events into read models. Prefer SyncInTxn for ledgers (Q1).

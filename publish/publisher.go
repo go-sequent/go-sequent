@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/wenweih/go-sequent/event"
+	"github.com/go-sequent/go-sequent/event"
 )
 
 // Handler consumes a single event (projector / workflow entrypoint).

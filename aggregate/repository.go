@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
 )
 
 // Factory reconstructs an empty aggregate of a given type for rehydration.

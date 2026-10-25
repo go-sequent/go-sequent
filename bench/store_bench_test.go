@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
+	"github.com/go-sequent/go-sequent/eventstore/postgres"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/eventstore/memory"
-	"github.com/wenweih/go-sequent/eventstore/postgres"
 )
 
 type benchEvt struct {

@@ -4,8 +4,8 @@ package workflow
 import (
 	"context"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/publish"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/publish"
 )
 
 // Workflow reacts to events for orchestration. Excluded from projector replay.

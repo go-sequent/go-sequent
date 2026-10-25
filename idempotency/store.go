@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sequent/go-sequent/command"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/command"
 )
 
 // ErrReplay indicates the idempotency key was already successfully processed.

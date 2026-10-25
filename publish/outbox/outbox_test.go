@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenweih/go-sequent/publish/outbox"
+	"github.com/go-sequent/go-sequent/publish/outbox"
 )
 
 func TestMemoryPoller(t *testing.T) {

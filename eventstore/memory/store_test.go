@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/eventstore"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/eventstore"
-	"github.com/wenweih/go-sequent/eventstore/memory"
 )
 
 type testEvt struct {

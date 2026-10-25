@@ -1,16 +1,16 @@
 package bank
 
 import (
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/types"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/types"
 )
 
 const (
-	EventAccountOpened      = "bank.AccountOpened"
-	EventMoneyDeposited     = "bank.MoneyDeposited"
-	EventMoneyWithdrawn     = "bank.MoneyWithdrawn"
-	EventTransferDebited    = "bank.TransferDebited"
-	EventTransferCredited   = "bank.TransferCredited"
+	EventAccountOpened    = "bank.AccountOpened"
+	EventMoneyDeposited   = "bank.MoneyDeposited"
+	EventMoneyWithdrawn   = "bank.MoneyWithdrawn"
+	EventTransferDebited  = "bank.TransferDebited"
+	EventTransferCredited = "bank.TransferCredited"
 )
 
 // AccountOpened is emitted when an account is created.
@@ -60,9 +60,9 @@ func (e *MoneyWithdrawn) EventType() string { return EventMoneyWithdrawn }
 // TransferDebited debits the source account in a same-bank transfer.
 type TransferDebited struct {
 	event.Base
-	Amount          types.Money `json:"amount"`
-	CounterpartyID  string      `json:"counterparty_id"`
-	TransferID      string      `json:"transfer_id"`
+	Amount         types.Money `json:"amount"`
+	CounterpartyID string      `json:"counterparty_id"`
+	TransferID     string      `json:"transfer_id"`
 }
 
 func NewTransferDebited(amount types.Money, counterpartyID, transferID string) *TransferDebited {

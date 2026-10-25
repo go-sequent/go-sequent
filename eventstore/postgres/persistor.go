@@ -3,9 +3,9 @@ package postgres
 import (
 	"context"
 
+	"github.com/go-sequent/go-sequent/projector"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wenweih/go-sequent/projector"
 )
 
 // Persistor implements projector.Persistor against the pool, joining the

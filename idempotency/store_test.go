@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/eventstore/memory"
+	"github.com/go-sequent/go-sequent/examples/bank"
+	"github.com/go-sequent/go-sequent/idempotency"
+	"github.com/go-sequent/go-sequent/sequent"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/eventstore/memory"
-	"github.com/wenweih/go-sequent/examples/bank"
-	"github.com/wenweih/go-sequent/idempotency"
-	"github.com/wenweih/go-sequent/sequent"
-	"github.com/wenweih/go-sequent/types"
 )
 
 func TestIdempotentRetryNoOp(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wenweih/go-sequent/obs"
+	"github.com/go-sequent/go-sequent/obs"
 )
 
 func TestInstrumentsNoopProvider(t *testing.T) {

@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/tenancy"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/tenancy"
 )
 
 // Handler handles bank commands.

@@ -7,7 +7,7 @@ Go CQRS + Event Sourcing library for financial systems, inspired by [Sequent](ht
 ## Module
 
 ```text
-github.com/wenweih/go-sequent
+github.com/go-sequent/go-sequent
 ```
 
 ## Docs

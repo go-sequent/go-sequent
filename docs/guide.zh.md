@@ -4,7 +4,7 @@
 >
 > **术语约定：** 框架 / API 名称以英文为准（如 Command、EventStore、SyncInTxn）；中文多为释义。完整对照见 [§26 名词释义](#26-名词释义)。
 
-模块：`github.com/wenweih/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC，Q7）
+模块：`github.com/go-sequent/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC，Q7）
 
 ---
 
@@ -444,7 +444,7 @@ JSON 里金额是 **字符串**，禁止 `float64`。可用 `types.AssertNoFloat
 
 ## 19. OpenTelemetry（obs）
 
-包：`obs`（`obs/otel.go`）。仪表名：`github.com/wenweih/go-sequent`。
+包：`obs`（`obs/otel.go`）。仪表名：`github.com/go-sequent/go-sequent`。
 
 ### 作用
 

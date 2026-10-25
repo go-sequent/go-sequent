@@ -2,7 +2,7 @@
 
 > Documents **what is implemented** in Phases 1–4 and `examples/bank`. Section names follow the spirit of the [Sequent](https://sequent.io/) Reference Guide; APIs and schemas are Go-native (**never** import a Ruby Sequent database — Q9).
 
-Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo — Q7)
+Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo — Q7)
 
 ---
 
@@ -279,7 +279,7 @@ Shared schema + `tenant_id` (Q4). `tenancy.WithTenant` + middleware copies into 
 
 ## 19. OpenTelemetry (`obs`)
 
-Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/wenweih/go-sequent`.
+Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/go-sequent/go-sequent`.
 
 ### Role and purpose
 

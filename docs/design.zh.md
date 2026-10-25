@@ -4,7 +4,7 @@
 > 英文/双语源文件：[`docs/design.md`](./design.md)；配套研究：[`sequent-research.zh.md`](./sequent-research.zh.md) / [`sequent-research.md`](./sequent-research.md)。
 
 **状态：** 仅设计（本阶段不实现框架代码）  
-**模块路径：** `github.com/wenweih/go-sequent`  
+**模块路径：** `github.com/go-sequent/go-sequent`  
 **灵感来源：** [Sequent](https://sequent.io/)（[zilverline/sequent](https://github.com/zilverline/sequent)）  
 **目标场景：** 金融系统 — 性能、高可用（HA）、安全、可审计性  
 **配套研究：** [`docs/sequent-research.zh.md`](./sequent-research.zh.md)
@@ -234,7 +234,7 @@ PostgreSQL 实现应镜像 Sequent 的 `store_events` 过程语义（见第 5 �
 ## 4. 包 / 模块布局
 
 ```text
-github.com/wenweih/go-sequent
+github.com/go-sequent/go-sequent
 ├── go.mod
 ├── README.md
 ├── docs/
@@ -551,7 +551,7 @@ type Authorizer interface {
 
 | ID | 决策 |
 |----|------|
-| D1 | 模块路径 = `github.com/wenweih/go-sequent`。 |
+| D1 | 模块路径 = `github.com/go-sequent/go-sequent`（取代 `github.com/wenweih/go-sequent`，2026-10-26 Asia/Shanghai）。 |
 | D2 | PostgreSQL 是首个（且 MVP 唯一）EventStore 后端。 |
 | D3 | 默认发布模式 = **写事务内同步 projector**（与 Sequent 对齐；确认 Q1）。 |
 | D4 | UoW 为**上下文作用域**，非进程全局。 |

@@ -7,20 +7,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/publish"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/publish"
 )
 
 // Stage is a rebuild pipeline step.
 type Stage string
 
 const (
-	StagePrepare   Stage = "preparing"
-	StageReplay    Stage = "replaying"
-	StageCatchup   Stage = "catching_up"
-	StageOptimize  Stage = "optimizing"
-	StageLive      Stage = "live"
-	StageAborted   Stage = "aborted"
+	StagePrepare  Stage = "preparing"
+	StageReplay   Stage = "replaying"
+	StageCatchup  Stage = "catching_up"
+	StageOptimize Stage = "optimizing"
+	StageLive     Stage = "live"
+	StageAborted  Stage = "aborted"
 )
 
 // EventSource streams events for rebuild (memory or postgres).
@@ -55,7 +55,7 @@ type State struct {
 
 // MemoryState is an in-process StateStore for tests / demos.
 type MemoryState struct {
-	mu   sync.Mutex
+	mu     sync.Mutex
 	byName map[string]State
 }
 
@@ -245,8 +245,8 @@ func (p *Pipeline) save(ctx context.Context, stage Stage, hw int64, rs, vs strin
 // NoopSchema is a SchemaManager that does nothing (in-memory projectors).
 type NoopSchema struct{}
 
-func (NoopSchema) Prepare(context.Context, string, []string) error  { return nil }
-func (NoopSchema) Optimize(context.Context, string) error           { return nil }
+func (NoopSchema) Prepare(context.Context, string, []string) error { return nil }
+func (NoopSchema) Optimize(context.Context, string) error          { return nil }
 func (NoopSchema) GoLive(context.Context, string, string, []string) error {
 	return nil
 }

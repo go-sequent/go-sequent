@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/go-sequent/go-sequent/eventstore"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/wenweih/go-sequent/eventstore"
 )
 
 // SaveSnapshot implements eventstore.SnapshotStore.

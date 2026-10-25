@@ -3,7 +3,7 @@ package tombstone_test
 import (
 	"testing"
 
-	"github.com/wenweih/go-sequent/tombstone"
+	"github.com/go-sequent/go-sequent/tombstone"
 )
 
 func TestNewTombstone(t *testing.T) {

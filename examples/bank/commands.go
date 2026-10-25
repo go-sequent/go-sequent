@@ -3,9 +3,9 @@ package bank
 import (
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/command"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/command"
-	"github.com/wenweih/go-sequent/types"
 )
 
 const (

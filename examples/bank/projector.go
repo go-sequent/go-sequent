@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/types"
 )
 
 // BalanceProjector keeps an in-memory ledger balance view (SyncInTxn demo).

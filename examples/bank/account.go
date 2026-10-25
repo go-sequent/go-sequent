@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-sequent/go-sequent/aggregate"
+	"github.com/go-sequent/go-sequent/event"
+	"github.com/go-sequent/go-sequent/types"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/aggregate"
-	"github.com/wenweih/go-sequent/event"
-	"github.com/wenweih/go-sequent/types"
 )
 
 const AggregateAccount = "bank.Account"

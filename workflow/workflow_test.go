@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wenweih/go-sequent/workflow"
+	"github.com/go-sequent/go-sequent/workflow"
 )
 
 func TestAfterCommitHooks(t *testing.T) {

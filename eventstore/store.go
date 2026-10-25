@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-sequent/go-sequent/event"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/event"
 )
 
 // StreamAppend is one aggregate's uncommitted events for an Append call.

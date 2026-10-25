@@ -1,7 +1,7 @@
 # go-sequent 设计文档 / Design Document
 
 **Status:** Design only (no framework implementation in this phase)  
-**Module path:** `github.com/wenweih/go-sequent`  
+**Module path:** `github.com/go-sequent/go-sequent`  
 **Inspired by:** [Sequent](https://sequent.io/) ([zilverline/sequent](https://github.com/zilverline/sequent))  
 **Target:** Financial systems — performance, HA, security, auditability  
 **Companion research:** [`docs/sequent-research.md`](./sequent-research.md) · 中文版：[`docs/design.zh.md`](./design.zh.md)、[`docs/sequent-research.zh.md`](./sequent-research.zh.md)
@@ -231,7 +231,7 @@ Two tracks:
 ## 4. Package / Module Layout
 
 ```text
-github.com/wenweih/go-sequent
+github.com/go-sequent/go-sequent
 ├── go.mod
 ├── README.md
 ├── docs/
@@ -548,7 +548,7 @@ Confirmed by wei on **2026-10-26** (Asia/Shanghai). No new open questions in thi
 
 | ID | Decision |
 |----|----------|
-| D1 | Module path = `github.com/wenweih/go-sequent`. |
+| D1 | Module path = `github.com/go-sequent/go-sequent` (supersedes `github.com/wenweih/go-sequent`, 2026-10-26 Asia/Shanghai). |
 | D2 | PostgreSQL is the first (and MVP-only) EventStore backend. |
 | D3 | Default publish mode = **sync projectors in the write transaction** (Sequent parity; affirms Q1). |
 | D4 | UoW is **context-scoped**, not process-global. |

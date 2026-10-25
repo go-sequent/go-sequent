@@ -3,8 +3,8 @@ package tenancy_test
 import (
 	"testing"
 
+	"github.com/go-sequent/go-sequent/tenancy"
 	"github.com/google/uuid"
-	"github.com/wenweih/go-sequent/tenancy"
 )
 
 func TestUniqueScopeAndPartition(t *testing.T) {
