@@ -142,6 +142,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			if created.IsZero() {
 				created = time.Now().UTC()
 			}
+			created = hashchain.CanonicalTime(created)
 			eventHash := hashchain.Compute(e.EventType(), st.AggregateID, e.SequenceNumber(), created, payload, prevHash)
 			cur.events = append(cur.events, storedEvent{
 				Type:        e.EventType(),

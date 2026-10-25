@@ -41,7 +41,7 @@ func (p *PostgresSchema) Optimize(ctx context.Context, replaySchema string) erro
 	if err := quoteIdent(replaySchema); err != nil {
 		return err
 	}
-	_, err := p.Pool.Exec(ctx, fmt.Sprintf(`ANALYZE`))
+	_, err := p.Pool.Exec(ctx, `ANALYZE`)
 	return err
 }
 

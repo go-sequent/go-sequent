@@ -10,7 +10,7 @@ type Factory func() Event
 
 // Registry maps stable event type names to factories for (de)serialization.
 type Registry struct {
-	mu   sync.RWMutex
+	mu     sync.RWMutex
 	byName map[string]Factory
 }
 

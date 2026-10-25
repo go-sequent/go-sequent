@@ -12,7 +12,7 @@ CREATE TABLE events_partitioned (
     created_at       TIMESTAMPTZ NOT NULL,
     command_id       UUID NOT NULL,
     event_type_id    SMALLINT NOT NULL,
-    event_json       JSONB NOT NULL,
+    event_json       BYTEA NOT NULL,
     tenant_id        UUID,
     PRIMARY KEY (partition_key, aggregate_id, sequence_number)
 ) PARTITION BY HASH (partition_key);

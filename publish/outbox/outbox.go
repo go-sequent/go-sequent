@@ -118,11 +118,11 @@ func (m *Memory) Depth(ctx context.Context) (int64, error) {
 
 // Poller drains the outbox via periodic Claim (Postgres table polling — Q6).
 type Poller struct {
-	Store     Store
-	Handler   Handler
-	BatchSize int
-	LockFor   time.Duration
-	Interval  time.Duration
+	Store      Store
+	Handler    Handler
+	BatchSize  int
+	LockFor    time.Duration
+	Interval   time.Duration
 	RetryAfter time.Duration
 }
 

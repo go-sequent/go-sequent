@@ -18,9 +18,9 @@ type Upcaster interface {
 
 // Chain applies upcasters until the type stabilizes or MaxHops is reached.
 type Chain struct {
-	mu       sync.RWMutex
-	byFrom   map[string]Upcaster
-	MaxHops  int
+	mu      sync.RWMutex
+	byFrom  map[string]Upcaster
+	MaxHops int
 }
 
 // NewChain returns an empty upcaster chain (v0).

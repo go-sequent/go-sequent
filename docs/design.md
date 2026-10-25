@@ -469,7 +469,7 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 
 - **In scope:** per-aggregate hash chain (`prev_hash`/`event_hash`, SHA-256).
 - **Out of scope:** event signatures (Q3).
-- **Canonical bytes** (UTF-8 lines joined by `\n`, no trailing newline after the last line): `event_type`, `aggregate_id`, `sequence_number`, `created_at` (UTC RFC3339Nano), `event_json`, `prev_hash` hex (64 lowercase). Seq 1 uses genesis (32 zero bytes). See `eventstore/hashchain`. Migration: `005_hash_chain.sql`.
+- **Canonical bytes** (UTF-8 lines joined by `\n`, no trailing newline after the last line): `event_type`, `aggregate_id`, `sequence_number`, `created_at` (UTC truncated to µs, then RFC3339Nano), `event_json` (**BYTEA** exact payload bytes — not JSONB), `prev_hash` hex (64 lowercase). Seq 1 uses genesis (32 zero bytes). See `eventstore/hashchain`. Migrations: `005_hash_chain.sql`, `006_event_json_bytea.sql`.
 - Rely on PostgreSQL access control, backups, and optional WORM / immutable storage at the ops layer as complementary controls.
 - Apps may still encrypt PII fields via `PayloadProtector` without implying event authenticity signatures.
 

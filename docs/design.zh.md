@@ -472,7 +472,7 @@ type Authorizer interface {
 
 - **范围内：** 按聚合流哈希链（`prev_hash` / `event_hash`，SHA-256）。
 - **不在范围内：** 事件签名（Q3）。
-- **规范字节**（UTF-8 行以 `\n` 拼接，末行无尾换行）：`event_type`、`aggregate_id`、`sequence_number`、`created_at`（UTC RFC3339Nano）、`event_json`、`prev_hash` hex（64 位小写）。序号 1 的 prev 为 genesis（32 字节全 0）。见 `eventstore/hashchain`。迁移：`005_hash_chain.sql`。
+- **规范字节**（UTF-8 行以 `\n` 拼接，末行无尾换行）：`event_type`、`aggregate_id`、`sequence_number`、`created_at`（UTC 截断到微秒再 RFC3339Nano）、`event_json`（**BYTEA** 原文，非 JSONB）、`prev_hash` hex（64 位小写）。序号 1 的 prev 为 genesis（32 字节全 0）。见 `eventstore/hashchain`。迁移：`005_hash_chain.sql`、`006_event_json_bytea.sql`。
 - PostgreSQL ACL、备份、运维层可选 WORM / 不可变存储仍为互补手段。
 - 应用仍可通过 `PayloadProtector` 加密 PII 字段，这并不等同于事件真实性签名。
 

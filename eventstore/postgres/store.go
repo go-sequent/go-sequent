@@ -35,6 +35,9 @@ var schemaPhase3 string
 //go:embed schema/005_hash_chain.sql
 var schemaHashChain string
 
+//go:embed schema/006_event_json_bytea.sql
+var schemaEventJSONBytea string
+
 type txKey struct{}
 
 // Store is a PostgreSQL-backed event store.
@@ -78,14 +81,25 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // SetUpcasters attaches event payload upcasters (v0).
 func (s *Store) SetUpcasters(c *upcast.Chain) { s.upcasters = c }
 
-// Migrate applies Phase 1–3 schema SQL, store_events, and hash-chain columns (Q3).
+// Migrate applies Phase 1–3 schema SQL, store_events, hash-chain columns (Q3),
+// and event_json BYTEA (exact bytes for hash verify).
 func (s *Store) Migrate(ctx context.Context) error {
-	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3, schemaHashChain} {
+	for i, sql := range []string{
+		schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3,
+		schemaHashChain, schemaEventJSONBytea,
+	} {
 		if _, err := s.pool.Exec(ctx, sql); err != nil {
 			return fmt.Errorf("postgres: migrate step %d: %w", i+1, err)
 		}
 	}
 	return nil
+}
+
+// TxFromContext returns the WithinTx transaction when present (for SyncInTxn
+// helpers such as idempotency that must see uncommitted commands).
+func TxFromContext(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
 }
 
 // WithinTx runs fn inside a transaction bound to ctx.
@@ -212,7 +226,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			}
 		}
 
-		var lastSeq int64 = tip
+		lastSeq := tip
 		for _, e := range st.Events {
 			evtTypeID, err := s.ensureType(ctx, db, "event_types", e.EventType(), &s.evtTypes)
 			if err != nil {
@@ -226,6 +240,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			if created.IsZero() {
 				created = time.Now().UTC()
 			}
+			created = hashchain.CanonicalTime(created)
 			eventHash := hashchain.Compute(e.EventType(), st.AggregateID, e.SequenceNumber(), created, payload, prevHash)
 			_, err = db.Exec(ctx, `
 				INSERT INTO events (aggregate_id, partition_key, sequence_number, created_at, command_id, event_type_id, event_json, tenant_id, prev_hash, event_hash)

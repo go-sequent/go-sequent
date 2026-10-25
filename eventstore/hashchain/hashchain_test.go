@@ -25,7 +25,7 @@ func TestComputeDeterministic(t *testing.T) {
 
 func TestVerifyStreamTamper(t *testing.T) {
 	id := uuid.New()
-	at := time.Now().UTC()
+	at := hashchain.CanonicalTime(time.Now().UTC())
 	p1 := []byte(`{"n":1}`)
 	h1 := hashchain.Compute("e.A", id, 1, at, p1, hashchain.Genesis)
 	p2 := []byte(`{"n":2}`)
@@ -40,5 +40,22 @@ func TestVerifyStreamTamper(t *testing.T) {
 	links[1].EventJSON = []byte(`{"n":99}`)
 	if err := hashchain.VerifyStream(links); err == nil {
 		t.Fatal("expected tamper")
+	}
+}
+
+func TestCanonicalTimeMatchesMicrosecondRoundTrip(t *testing.T) {
+	at := time.Date(2026, 10, 26, 12, 0, 0, 123456789, time.UTC)
+	c := hashchain.CanonicalTime(at)
+	if c.Nanosecond() != 123456000 {
+		t.Fatalf("want microsecond truncate, got %d", c.Nanosecond())
+	}
+	id := uuid.New()
+	payload := []byte(`{"ok":true}`)
+	h1 := hashchain.Compute("e", id, 1, at, payload, nil)
+	// Simulate PG TIMESTAMPTZ reload (microseconds only).
+	reloaded := time.Unix(0, c.UnixNano()).UTC()
+	h2 := hashchain.Compute("e", id, 1, reloaded, payload, nil)
+	if hashchain.Hex(h1) != hashchain.Hex(h2) {
+		t.Fatal("hash must survive microsecond round-trip")
 	}
 }

@@ -6,12 +6,16 @@
 //  1. event_type       — stable type name
 //  2. aggregate_id     — UUID string
 //  3. sequence_number  — decimal
-//  4. created_at       — UTC RFC3339Nano
-//  5. event_json       — exact stored payload bytes
+//  4. created_at       — UTC truncated to microseconds, then RFC3339Nano
+//  5. event_json       — exact stored payload bytes (must be BYTEA/TEXT, not JSONB)
 //  6. prev_hash_hex    — 64 lowercase hex chars (genesis = 64 '0's)
 //
 // event_hash = SHA-256(input). Seq 1 uses Genesis (32 zero bytes) as prev_hash.
 // No event signatures — Q3 is hash chain only.
+//
+// TIMESTAMPTZ is microsecond-precision; CanonicalTime matches Postgres so
+// append hash == reload verify. event_json must not round-trip through JSONB
+// (key order / whitespace would break the chain).
 package hashchain
 
 import (
@@ -43,6 +47,11 @@ func ParseHex(s string) ([]byte, error) {
 	return hex.DecodeString(strings.TrimSpace(s))
 }
 
+// CanonicalTime normalizes created_at for hashing and TIMESTAMPTZ storage.
+func CanonicalTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Microsecond)
+}
+
 // Compute returns SHA-256 over the canonical lines for one event.
 func Compute(eventType string, aggregateID uuid.UUID, seq int64, createdAt time.Time, eventJSON []byte, prevHash []byte) []byte {
 	if prevHash == nil {
@@ -51,7 +60,7 @@ func Compute(eventType string, aggregateID uuid.UUID, seq int64, createdAt time.
 	if len(prevHash) == 0 {
 		prevHash = Genesis
 	}
-	created := createdAt.UTC().Format(time.RFC3339Nano)
+	created := CanonicalTime(createdAt).Format(time.RFC3339Nano)
 	var b strings.Builder
 	b.Grow(len(eventType) + 36 + 20 + len(created) + len(eventJSON) + 64 + 16)
 	b.WriteString(eventType)

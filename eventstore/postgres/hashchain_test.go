@@ -49,7 +49,9 @@ func TestIT_HashChain_Tamper(t *testing.T) {
 	}
 
 	_, err = store.Pool().Exec(ctx, `
-UPDATE events SET event_json = '{"owner":"tampered","currency":"USD","opening":{"amount":"3","currency":"USD"}}'::jsonb
+UPDATE events SET event_json = convert_to(
+  '{"owner":"tampered","currency":"USD","opening":{"amount":"3","currency":"USD"}}',
+  'UTF8')
 WHERE aggregate_id = $1 AND sequence_number = 1`, id)
 	if err != nil {
 		t.Fatal(err)

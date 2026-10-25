@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at       TIMESTAMPTZ NOT NULL,
     command_id       UUID NOT NULL REFERENCES commands (id),
     event_type_id    SMALLINT NOT NULL REFERENCES event_types (id),
-    event_json       JSONB NOT NULL,
+    event_json       BYTEA NOT NULL,
     tenant_id        UUID,
     PRIMARY KEY (aggregate_id, sequence_number)
 );

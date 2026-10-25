@@ -78,7 +78,9 @@ BEGIN
             VALUES (
                 _agg_id, _pk, _tip,
                 COALESCE((_evt->>'created_at')::timestamptz, _created_at),
-                _command_id, _evt_type_id, _evt->'event_json', _tenant_id
+                _command_id, _evt_type_id,
+                convert_to((_evt->'event_json')::text, 'UTF8'),
+                _tenant_id
             );
         END LOOP;
 
