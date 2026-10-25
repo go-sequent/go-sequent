@@ -56,6 +56,10 @@ go get github.com/go-sequent/go-sequent@latest
 
 (Private module: use `GOPRIVATE` / `replace` as needed.)
 
+## CI / CD
+
+GitHub Actions on `main`/`master` PRs and pushes: race tests, vet, golangci-lint, mod tidy check, and Postgres ITs. Tag `v*` runs the same CI then GoReleaser for `cmd/go-sequent` binaries. **No secrets required for CI.** Details: [ci.md](./ci.md) · [ci.zh.md](./ci.zh.md).
+
 ## Core loop
 
 1. Define **Events** and register factories on `event.Registry`.

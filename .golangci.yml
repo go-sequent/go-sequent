@@ -1,0 +1,19 @@
+version: "2"
+
+linters:
+  default: standard
+  # Keep the first bar low; tighten over time.
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+
+run:
+  timeout: 5m

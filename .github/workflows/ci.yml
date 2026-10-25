@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_call: # reused by release.yml on v* tags
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: vet / lint / mod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1.6
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test (unit / memory; no Postgres)
+        run: go test -race -count=1 ./...
+
+  test-postgres:
+    name: test (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sequent
+          POSTGRES_PASSWORD: sequent
+          POSTGRES_DB: sequent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sequent -d sequent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GO_SEQUENT_PG_DSN: postgres://sequent:sequent@localhost:5432/sequent?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test (packages that use GO_SEQUENT_PG_DSN)
+        run: >
+          go test -race -count=1
+          ./eventstore/postgres/
+          ./examples/bank/
+          ./examples/bankpg/

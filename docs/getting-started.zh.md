@@ -45,6 +45,10 @@ GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disabl
 go get github.com/go-sequent/go-sequent@latest
 ```
 
+## CI / CD
+
+`main`/`master` 的 push/PR 跑 race 测试、vet、golangci-lint、mod tidy，以及 Postgres 集成测。打 `v*` 标签会再跑完整 CI，并用 GoReleaser 发布 `cmd/go-sequent` 二进制。**CI 不需要 secrets。** 详见 [ci.zh.md](./ci.zh.md) · [ci.md](./ci.md)。
+
 ## 金额（Q2）
 
 使用 `types.Money`（decimal 字符串 JSON）。**禁止** `float64`。可用 `types.AssertNoFloatMoney` / `testkit.BanFloat64Money`。

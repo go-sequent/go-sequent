@@ -14,6 +14,7 @@ github.com/go-sequent/go-sequent
 
 - [docs/guide.md](docs/guide.md) · [zh](docs/guide.zh.md) — **framework reference** (Sequent-inspired concepts, implemented APIs; OpenTelemetry / `obs` in §19)
 - [docs/getting-started.md](docs/getting-started.md) · [zh](docs/getting-started.zh.md)
+- [docs/ci.md](docs/ci.md) · [zh](docs/ci.zh.md) — GitHub Actions CI/CD (private repo; tag releases for CLI)
 - [docs/design.md](docs/design.md)
 - [docs/ops/](docs/ops/) — failover, rebuild, backup, partitioning
 - [docs/security/](docs/security/) — threat model, event evolution
