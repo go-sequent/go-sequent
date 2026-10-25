@@ -2,6 +2,8 @@
 
 账本闭环：**Command → Aggregate → EventStore → SyncInTxn Projector**，含 Phase 2–3 能力与 Phase 4 生产加固文档/基准。
 
+**完整参考：** [框架指南（中文）](./guide.zh.md) · [Framework guide (EN)](./guide.md) — AggregateRoot、Command、Event、CommandService、Repository、EventStore、Projector、Workflow、快照等。
+
 ## Bank 示例
 
 规范演示在 [`examples/bank/`](../examples/bank/)：开户、存款、取款、同行 **转账**、SyncInTxn 余额投影、`tenant_id` 唯一键、decimal `types.Money`，以及通过 `bank.NewDemoApp` 轻量接入 AuthZ / 幂等。

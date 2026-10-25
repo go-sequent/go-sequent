@@ -1,0 +1,370 @@
+# go-sequent Framework Guide
+
+> Documents **what is implemented** in Phases 1–4 and `examples/bank`. Section names follow the spirit of the [Sequent](https://sequent.io/) Reference Guide; APIs and schemas are Go-native (**never** import a Ruby Sequent database — Q9).
+
+Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo — Q7)
+
+---
+
+## Table of contents
+
+1. [What is go-sequent / when to use it](#1-what-is-go-sequent--when-to-use-it)
+2. [Core loop (basic flow)](#2-core-loop-basic-flow)
+3. [Command and Meta](#3-command-and-meta)
+4. [Event and Registry](#4-event-and-registry)
+5. [AggregateRoot](#5-aggregateroot)
+6. [CommandHandler](#6-commandhandler)
+7. [AggregateRepository and UnitOfWork](#7-aggregaterepository-and-unitofwork)
+8. [CommandService and middleware](#8-commandservice-and-middleware)
+9. [EventStore (memory / postgres)](#9-eventstore-memory--postgres)
+10. [Publisher: SyncInTxn and outbox](#10-publisher-syncintxn-and-outbox)
+11. [Projector](#11-projector)
+12. [Workflow and AfterCommit](#12-workflow-and-aftercommit)
+13. [Snapshotting (JSON)](#13-snapshotting-json)
+14. [Unique keys and optimistic concurrency](#14-unique-keys-and-optimistic-concurrency)
+15. [Idempotency](#15-idempotency)
+16. [AuthZ](#16-authz)
+17. [Tenancy](#17-tenancy)
+18. [Money (decimal)](#18-money-decimal)
+19. [Migrations and ops CLI](#19-migrations-and-ops-cli)
+20. [Wiring: the `sequent` façade](#20-wiring-the-sequent-façade)
+21. [Bank example walkthrough](#21-bank-example-walkthrough)
+22. [Testing guidance](#22-testing-guidance)
+23. [Ops and security pointers](#23-ops-and-security-pointers)
+24. [Not implemented / Phase boundaries vs Sequent Ruby](#24-not-implemented--phase-boundaries-vs-sequent-ruby)
+25. [Locked decisions (Q1–Q10)](#25-locked-decisions-q1q10)
+
+---
+
+## 1. What is go-sequent / when to use it
+
+**go-sequent** is a Go **CQRS + Event Sourcing** library aimed at financial ledger workloads. You define commands, aggregates, events, and projections; the framework provides:
+
+- One **DB transaction + context-scoped UnitOfWork** per `Execute`
+- **Optimistic concurrency** and **unique keys** on append
+- Ledger projections **synchronously in the write txn** (`SyncInTxn`, Q1)
+- Decimal **Money**, tenant-scoped idempotency, AuthZ hooks, JSON snapshots, tombstone GDPR hooks, optional outbox polling
+
+**Use when:** balances must not lag the write path; you want shared-schema multi-tenancy; you need auditable command/event records.
+
+**Not a web framework:** no Rails/Sinatra generators, no HTTP API, no ActiveRecord. Embed the library in your own process.
+
+See also [getting-started.md](./getting-started.md) and [design.md](./design.md).
+
+---
+
+## 2. Core loop (basic flow)
+
+```text
+Client / service entry
+        │
+        ▼
+  CommandService.Execute(ctx, cmds...)
+        │  Tx + UnitOfWork
+        ├─ Middleware (tenancy / idempotency …)
+        ├─ Filters (AuthZ)
+        ├─ Command.Validate (optional)
+        ▼
+  CommandHandler
+        │  Repo.Add / Repo.Load → aggregate Apply
+        ▼
+  Repository.Commit
+        │  EventStore.Append
+        │  Publisher.Publish → Projectors → Workflows
+        ▼
+  Tx commit → AfterCommit hooks
+```
+
+You implement **Command / Handler / Aggregate / Event / Projector** (and optional Workflow). `command.Service`, `aggregate.Repository`, `eventstore`, and `publish.SyncInTxn` wire the rest.
+
+---
+
+## 3. Command and Meta
+
+Package: `command`
+
+```go
+type Command interface {
+    CommandType() string
+    AggregateID() (uuid.UUID, bool)
+    Meta() *Meta
+}
+```
+
+Embed `command.Base` for `Meta()`. `EnsureMeta` fills `CommandID`, `IssuedAt`, `CorrelationID`.
+
+| Field | Role |
+|-------|------|
+| `CommandID` | Audit id |
+| `IdempotencyKey` | Per-tenant idempotency |
+| `TenantID` / `UserID` | Tenancy / actor |
+| `CorrelationID` / `CausationID` | Conversation / cause |
+| `Source` | Label (`api`, `workflow`, …) |
+| `AuthContext` | Opaque claims — **do not** trust client `UserID` alone |
+
+`command.AuditOf(cmd)` builds a persistence-friendly audit snapshot. Implement `Validate() error` for self-checks before the handler.
+
+---
+
+## 4. Event and Registry
+
+Package: `event`
+
+Events embed `event.Base` and set a stable type name. `Apply` fills aggregate id, sequence, and timestamp.
+
+**Registry** maps type name → factory for JSON decode:
+
+```go
+r.Register("bank.AccountOpened", func() event.Event { return &AccountOpened{} })
+```
+
+Upcasters live in `event/upcast` and register on `sequent.App.Upcasters`. No Ruby Sequent table compatibility.
+
+---
+
+## 5. AggregateRoot
+
+Package: `aggregate`
+
+Embed `aggregate.Base`:
+
+1. `Init(id, typeName)` and `On(sample, applier)` — appliers are **pure state** only  
+2. Command methods validate then `Apply(event)` — **no I/O** in appliers  
+3. Optional `Invariants()`, `UniqueKeys()`, `PartitionKey`
+
+Uncommitted events sit in `UncommittedEvents()` until `Repository.Commit`.
+
+---
+
+## 6. CommandHandler
+
+```go
+type Handler interface {
+    Handles() []string
+    Handle(ctx context.Context, cmd Command) error
+}
+```
+
+Use `Repo.Add` / `Repo.Load` only — do not call `EventStore.Append` from handlers. Multi-aggregate commands (e.g. transfer) load both aggregates in one UoW. `Router.Register` panics on duplicate command types.
+
+---
+
+## 7. AggregateRepository and UnitOfWork
+
+**UnitOfWork** is a per-request identity map on `context` (**never** share across goroutines).
+
+- `Execute` creates UoW inside the txn  
+- `Add` / `Load` require UoW in ctx  
+- `Load` reuses the identity-map instance  
+- `Commit` appends in **load/registration order**, publishes, then `MarkCommitted`
+
+Factories: `RegisterFactory(aggregateType, func(id) Root)`.
+
+---
+
+## 8. CommandService and middleware
+
+```go
+svc.Execute(ctx, cmd1, cmd2, ...) // one txn, one UoW
+```
+
+Flow: AfterCommit bag → `WithinTx` → UoW → for each command: Middleware → Filters → Validate → Dispatch → Commit → after success, AfterCommit.
+
+`Chain` runs **outer-first** (index 0 first). Bank demo order: **tenancy before idempotency** so `Meta.TenantID` is set. Optional `obs.Instruments` for timing/conflicts.
+
+---
+
+## 9. EventStore (memory / postgres)
+
+```go
+Append(ctx, CommandRecord, []StreamAppend) error
+LoadStream(ctx, id) ([]event.Event, error)
+```
+
+Errors: `ErrOptimisticConcurrency`, `ErrUniqueKeyViolation`, `ErrStreamNotFound`.
+
+- **memory** — unit/IT  
+- **postgres** — `Open` + `Migrate` (schemas `001`–`004`); also `TxManager` + `SnapshotStore`
+
+---
+
+## 10. Publisher: SyncInTxn and outbox
+
+**SyncInTxn (default, Q1):** in the write txn, projectors then workflows; failure rolls back. Replay uses `PublishProjectorsOnly`.
+
+**WithOutbox (Q6):** after sync handlers, enqueue matching events; drain with `outbox.Poller` / `go-sequent outbox` (**table polling**). Keep ledger projectors on SyncInTxn.
+
+---
+
+## 11. Projector
+
+```go
+type Projector interface {
+    publish.Handler
+    ManagedTables() []string
+}
+```
+
+Bank `BalanceProjector` is in-memory for the demo; production should use `Persistor` for replay-safe SQL. One table → one projector; ledger failures must fail the write txn.
+
+---
+
+## 12. Workflow and AfterCommit
+
+Workflows implement `publish.Handler` via `RegisterWorkflow` — **excluded** from projection rebuild.
+
+```go
+workflow.RegisterAfterCommit(ctx, func(ctx context.Context) error { /* side effect */ return nil })
+```
+
+Runs only after a successful commit. See bank `NotifyWorkflow`.
+
+---
+
+## 13. Snapshotting (JSON)
+
+Q8: **JSON**. Implement `SnapshotVersion` / `MarshalSnapshot` / `UnmarshalSnapshot`. Repository loads latest snapshot then remaining events. `snapshot.Snapshotter` can batch in the background.
+
+---
+
+## 14. Unique keys and optimistic concurrency
+
+- OCC: `ExpectedVersion` must match stream tip → else `ErrOptimisticConcurrency`  
+- Unique keys: `UniqueKeys()` map `scope → value` (bank scopes owner by tenant partition) → `ErrUniqueKeyViolation`
+
+---
+
+## 15. Idempotency
+
+Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: `NewMemory` / `NewPostgres`. `IdempotencyKey` requires `TenantID`.
+
+---
+
+## 16. AuthZ
+
+`security.Authorizer` via `WithAuthorizer` or middleware. Built-ins: `AllowAll`, `DenyByDefault`. Check `errors.Is(err, security.ErrDenied)`. No event hash-chain/signatures (Q3).
+
+---
+
+## 17. Tenancy
+
+Shared schema + `tenant_id` (Q4). `tenancy.WithTenant` + middleware copies into `Meta.TenantID`. Helpers: `UniqueScope`, `PartitionKey`, `MatchAggregateTenant`.
+
+---
+
+## 18. Money (decimal)
+
+`types.Money` — decimal string JSON, never `float64`. `MustMoney` / `Add` / `Sub` / `Round`. Lint helpers: `AssertNoFloatMoney`, `testkit.BanFloat64Money`.
+
+---
+
+## 19. Migrations and ops CLI
+
+`store.Migrate` applies `001`–`004`. Partition SQL under `docs/ops/` is example-only.
+
+```bash
+go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
+go run ./cmd/go-sequent replay -dsn "$DSN" -projector name -stage prepare -tables t1
+```
+
+Full event replay needs an app-wired `projector/replay.Pipeline`. GDPR: `tombstone` (tombstone-only, Q5). `crypto.PayloadProtector` is optional field encryption — not crypto-shredding.
+
+---
+
+## 20. Wiring: the `sequent` façade
+
+```go
+app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn},
+    sequent.WithStore(store, tx),
+    sequent.WithAuthorizer(...),
+    sequent.WithIdempotency(store, false),
+    sequent.WithObs(inst),
+)
+app.RegisterAggregate(...)
+app.RegisterHandler(...)
+app.RegisterProjector(...)
+app.RegisterWorkflow(...)
+_ = app.Service.Execute(ctx, cmd)
+```
+
+Bank helper: `bank.NewDemoApp` with `StoreFactory` so the store shares the app event registry.
+
+---
+
+## 21. Bank example walkthrough
+
+Directory: [`examples/bank/`](../examples/bank/)
+
+Open / deposit / withdraw / same-UoW **transfer**, SyncInTxn balances, tenant unique owner, decimal money, AuthZ + idempotency via `NewDemoApp`.
+
+```bash
+go test ./examples/bank/ -count=1
+GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bank/ -run TestIT_Postgres
+```
+
+Read order: `commands` → `account` → `handler` → `projector` → `app` → integration tests.
+
+---
+
+## 22. Testing guidance
+
+| Level | Approach |
+|-------|----------|
+| Aggregate unit | `testkit` Given/When/Expect |
+| App / IT | memory store + `NewDemoApp` |
+| AuthZ / idempotency / tenancy | `TestIT_Memory_*` |
+| OCC | stale `ExpectedVersion` |
+| Postgres | `GO_SEQUENT_PG_DSN` or skip |
+
+`go test ./...` must pass **without** DSN. Benches: [bench.md](./bench.md).
+
+---
+
+## 23. Ops and security pointers
+
+| Topic | Doc |
+|-------|-----|
+| Failover / rebuild / backup / partitioning | [ops/](./ops/) |
+| Threat model | [security/threat-model.md](./security/threat-model.md) |
+| Event evolution / upcasters | [security/event-evolution.md](./security/event-evolution.md) |
+| Benchmarks | [bench.md](./bench.md) |
+
+---
+
+## 24. Not implemented / Phase boundaries vs Sequent Ruby
+
+| Sequent Ruby | go-sequent |
+|--------------|------------|
+| AggregateRoot, Command, Event, CommandService, Repository, EventStore, Projector, Workflow, Snapshot, Migrations | **Implemented** (Go APIs) |
+| ActiveRecord Records + migration DSL | **No** AR; `ManagedTables` + `projector/replay` |
+| Rails/Sinatra generators / auto-registration | **No** (pure library) |
+| AggregateObserver | Not productized |
+| ValueObject type system | Plain Go + `types.Money` |
+| Default message bus / LISTEN/NOTIFY | Optional outbox **polling** |
+| Event hash-chain / signatures | **Out of scope** (Q3) |
+| Import Sequent DB | **Forbidden** (Q9) |
+| HTTP/gRPC stubs | **None** (Q7) |
+
+Phases: 1 core loop → 2 snapshots/upcast/workflow/replay skeleton → 3 idempotency/AuthZ/outbox/tenancy/tombstone/obs → 4 docs/benches → bank example + ITs.
+
+---
+
+## 25. Locked decisions (Q1–Q10)
+
+| # | Choice |
+|---|--------|
+| Q1 | Ledger projections **SyncInTxn** |
+| Q2 | Money = **decimal** (ban float64) |
+| Q3 | Integrity = **DB only** |
+| Q4 | Tenancy = **shared schema + tenant_id** |
+| Q5 | GDPR = **tombstone only** |
+| Q6 | Outbox = **Postgres table polling** |
+| Q7 | **Pure library** |
+| Q8 | Snapshots = **JSON** |
+| Q9 | **Never** import Ruby Sequent DBs |
+| Q10 | Project stays **private** |
+
+---
+
+*Matches Phases 1–4 + bank example; source code wins if APIs drift.*

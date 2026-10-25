@@ -12,6 +12,7 @@ github.com/wenweih/go-sequent
 
 ## Docs
 
+- [docs/guide.md](docs/guide.md) · [zh](docs/guide.zh.md) — **framework reference** (Sequent-inspired concepts, implemented APIs)
 - [docs/getting-started.md](docs/getting-started.md) · [zh](docs/getting-started.zh.md)
 - [docs/design.md](docs/design.md)
 - [docs/ops/](docs/ops/) — failover, rebuild, backup, partitioning

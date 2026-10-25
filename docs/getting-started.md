@@ -2,6 +2,8 @@
 
 Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2–3 features and Phase 4 production hardening docs/benches.
 
+**Full reference:** [Framework guide (EN)](./guide.md) · [框架指南（中文）](./guide.zh.md) — AggregateRoot, Command, Event, CommandService, Repository, EventStore, Projector, Workflow, snapshots, and more.
+
 ## Bank example
 
 The canonical demo lives under [`examples/bank/`](../examples/bank/): open account, deposit, withdraw, same-bank **transfer**, SyncInTxn balance projection, `tenant_id` unique keys, decimal `types.Money`, plus light AuthZ / idempotency wiring via `bank.NewDemoApp`.
