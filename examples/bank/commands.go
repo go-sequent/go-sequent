@@ -12,6 +12,7 @@ const (
 	CmdOpenAccount = "bank.OpenAccount"
 	CmdDeposit     = "bank.Deposit"
 	CmdWithdraw    = "bank.Withdraw"
+	CmdTransfer    = "bank.Transfer"
 )
 
 // OpenAccount opens a new account.
@@ -78,6 +79,35 @@ func (c *Withdraw) Validate() error {
 	}
 	if c.Amount.IsZero() || c.Amount.IsNegative() {
 		return fmt.Errorf("amount must be positive")
+	}
+	return nil
+}
+
+// Transfer moves money between two accounts in one UoW (demo same-bank transfer).
+type Transfer struct {
+	command.Base
+	FromAccountID uuid.UUID   `json:"from_account_id"`
+	ToAccountID   uuid.UUID   `json:"to_account_id"`
+	Amount        types.Money `json:"amount"`
+	TransferID    string      `json:"transfer_id"`
+}
+
+func (c *Transfer) CommandType() string { return CmdTransfer }
+func (c *Transfer) AggregateID() (uuid.UUID, bool) {
+	return c.FromAccountID, c.FromAccountID != uuid.Nil
+}
+func (c *Transfer) Validate() error {
+	if c.FromAccountID == uuid.Nil || c.ToAccountID == uuid.Nil {
+		return fmt.Errorf("from and to account_id required")
+	}
+	if c.FromAccountID == c.ToAccountID {
+		return fmt.Errorf("cannot transfer to same account")
+	}
+	if c.Amount.IsZero() || c.Amount.IsNegative() {
+		return fmt.Errorf("amount must be positive")
+	}
+	if c.TransferID == "" {
+		return fmt.Errorf("transfer_id required")
 	}
 	return nil
 }

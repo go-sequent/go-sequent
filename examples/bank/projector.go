@@ -16,6 +16,7 @@ type BalanceProjector struct {
 	mu       sync.RWMutex
 	balances map[uuid.UUID]types.Money
 	owners   map[uuid.UUID]string
+	tenants  map[uuid.UUID]uuid.UUID // optional; filled when Open meta is known via events only
 }
 
 // NewBalanceProjector constructs an empty balance view.
@@ -23,13 +24,17 @@ func NewBalanceProjector() *BalanceProjector {
 	return &BalanceProjector{
 		balances: make(map[uuid.UUID]types.Money),
 		owners:   make(map[uuid.UUID]string),
+		tenants:  make(map[uuid.UUID]uuid.UUID),
 	}
 }
 
 func (p *BalanceProjector) ManagedTables() []string { return []string{"account_balances"} }
 
 func (p *BalanceProjector) Handles() []string {
-	return []string{EventAccountOpened, EventMoneyDeposited, EventMoneyWithdrawn}
+	return []string{
+		EventAccountOpened, EventMoneyDeposited, EventMoneyWithdrawn,
+		EventTransferDebited, EventTransferCredited,
+	}
 }
 
 func (p *BalanceProjector) Handle(ctx context.Context, e event.Event) error {
@@ -40,26 +45,40 @@ func (p *BalanceProjector) Handle(ctx context.Context, e event.Event) error {
 		p.balances[ev.AggregateID()] = ev.Opening
 		p.owners[ev.AggregateID()] = ev.Owner
 	case *MoneyDeposited:
-		cur, ok := p.balances[ev.AggregateID()]
-		if !ok {
-			return fmt.Errorf("projector: unknown account %s", ev.AggregateID())
-		}
-		next, err := cur.Add(ev.Amount)
-		if err != nil {
-			return err
-		}
-		p.balances[ev.AggregateID()] = next
+		return p.add(ev.AggregateID(), ev.Amount)
 	case *MoneyWithdrawn:
-		cur, ok := p.balances[ev.AggregateID()]
-		if !ok {
-			return fmt.Errorf("projector: unknown account %s", ev.AggregateID())
-		}
-		next, err := cur.Sub(ev.Amount)
-		if err != nil {
-			return err
-		}
-		p.balances[ev.AggregateID()] = next
+		return p.sub(ev.AggregateID(), ev.Amount)
+	case *TransferDebited:
+		return p.sub(ev.AggregateID(), ev.Amount)
+	case *TransferCredited:
+		return p.add(ev.AggregateID(), ev.Amount)
 	}
+	return nil
+}
+
+func (p *BalanceProjector) add(id uuid.UUID, amount types.Money) error {
+	cur, ok := p.balances[id]
+	if !ok {
+		return fmt.Errorf("projector: unknown account %s", id)
+	}
+	next, err := cur.Add(amount)
+	if err != nil {
+		return err
+	}
+	p.balances[id] = next
+	return nil
+}
+
+func (p *BalanceProjector) sub(id uuid.UUID, amount types.Money) error {
+	cur, ok := p.balances[id]
+	if !ok {
+		return fmt.Errorf("projector: unknown account %s", id)
+	}
+	next, err := cur.Sub(amount)
+	if err != nil {
+		return err
+	}
+	p.balances[id] = next
 	return nil
 }
 
@@ -69,4 +88,12 @@ func (p *BalanceProjector) Balance(id uuid.UUID) (types.Money, bool) {
 	defer p.mu.RUnlock()
 	m, ok := p.balances[id]
 	return m, ok
+}
+
+// Owner returns the projected owner name.
+func (p *BalanceProjector) Owner(id uuid.UUID) (string, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	o, ok := p.owners[id]
+	return o, ok
 }

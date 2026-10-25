@@ -2,6 +2,36 @@
 
 账本闭环：**Command → Aggregate → EventStore → SyncInTxn Projector**，含 Phase 2–3 能力与 Phase 4 生产加固文档/基准。
 
+## Bank 示例
+
+规范演示在 [`examples/bank/`](../examples/bank/)：开户、存款、取款、同行 **转账**、SyncInTxn 余额投影、`tenant_id` 唯一键、decimal `types.Money`，以及通过 `bank.NewDemoApp` 轻量接入 AuthZ / 幂等。
+
+```go
+demo, err := bank.NewDemoApp(bank.DemoOptions{
+    StoreFactory: /* memory 或 postgres */,
+    Idempotency: idempotency.NewMemory(),
+    Authorizer: bank.AllowBankCommands(),
+    EnableTenancyMW: true,
+})
+```
+
+## 集成测试
+
+| 路径 | 何时运行 |
+|------|----------|
+| 内存 ITs（`TestIT_Memory_*`） | 始终 — 包含在 `go test ./...` |
+| Postgres ITs（`TestIT_Postgres_*`） | 仅当设置 `GO_SEQUENT_PG_DSN`；否则 skip |
+
+```bash
+go test ./...
+go test ./examples/bank/ -count=1
+
+GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
+  go test ./examples/bank/ -count=1 -run TestIT_Postgres
+```
+
+覆盖：命令 → 事件 → SyncInTxn 投影（开户/存/取/转账）、幂等重试、AuthZ 拒绝、租户唯一 owner、乐观并发冲突（内存始终；Postgres 需 DSN）。
+
 ## 安装
 
 ```bash

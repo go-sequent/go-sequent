@@ -31,9 +31,7 @@ func NewAccount(id uuid.UUID) *Account {
 		a.Currency = ev.Currency
 		a.Balance = ev.Opening
 		a.Open = true
-		a.SetUniqueKeys(map[string]any{
-			"bank.Account.owner": a.Owner,
-		})
+		a.refreshUniqueKeys()
 	})
 	a.On(&MoneyDeposited{}, func(e event.Event) {
 		ev := e.(*MoneyDeposited)
@@ -46,6 +44,22 @@ func NewAccount(id uuid.UUID) *Account {
 	a.On(&MoneyWithdrawn{}, func(e event.Event) {
 		ev := e.(*MoneyWithdrawn)
 		bal, err := a.Balance.Sub(ev.Amount)
+		if err != nil {
+			panic(err)
+		}
+		a.Balance = bal
+	})
+	a.On(&TransferDebited{}, func(e event.Event) {
+		ev := e.(*TransferDebited)
+		bal, err := a.Balance.Sub(ev.Amount)
+		if err != nil {
+			panic(err)
+		}
+		a.Balance = bal
+	})
+	a.On(&TransferCredited{}, func(e event.Event) {
+		ev := e.(*TransferCredited)
+		bal, err := a.Balance.Add(ev.Amount)
 		if err != nil {
 			panic(err)
 		}
@@ -109,6 +123,49 @@ func (a *Account) Withdraw(amount types.Money) error {
 	return nil
 }
 
+// DebitTransfer records an outgoing transfer (same UoW as credit on the peer).
+func (a *Account) DebitTransfer(amount types.Money, toAccountID, transferID string) error {
+	if !a.Open {
+		return fmt.Errorf("account not open")
+	}
+	if amount.IsZero() || amount.IsNegative() {
+		return fmt.Errorf("transfer amount must be positive")
+	}
+	if amount.Currency != a.Currency {
+		return fmt.Errorf("currency mismatch")
+	}
+	if transferID == "" {
+		return fmt.Errorf("transfer_id required")
+	}
+	next, err := a.Balance.Sub(amount)
+	if err != nil {
+		return err
+	}
+	if next.IsNegative() {
+		return fmt.Errorf("insufficient funds")
+	}
+	a.Apply(NewTransferDebited(amount, toAccountID, transferID))
+	return nil
+}
+
+// CreditTransfer records an incoming transfer.
+func (a *Account) CreditTransfer(amount types.Money, fromAccountID, transferID string) error {
+	if !a.Open {
+		return fmt.Errorf("account not open")
+	}
+	if amount.IsZero() || amount.IsNegative() {
+		return fmt.Errorf("transfer amount must be positive")
+	}
+	if amount.Currency != a.Currency {
+		return fmt.Errorf("currency mismatch")
+	}
+	if transferID == "" {
+		return fmt.Errorf("transfer_id required")
+	}
+	a.Apply(NewTransferCredited(amount, fromAccountID, transferID))
+	return nil
+}
+
 // Invariants ensures ledger consistency.
 func (a *Account) Invariants() error {
 	if a.Open && a.Balance.IsNegative() {
@@ -117,12 +174,16 @@ func (a *Account) Invariants() error {
 	return nil
 }
 
-// UniqueKeys scopes owner uniqueness (Sequent-style).
+// UniqueKeys scopes owner uniqueness per tenant partition (Q4).
 func (a *Account) UniqueKeys() map[string]any {
 	if !a.Open {
 		return nil
 	}
-	return map[string]any{"bank.Account.owner": a.Owner}
+	scope := "bank.Account.owner"
+	if pk := a.PartitionKey(); pk != "" {
+		scope = "tenant:" + pk + ":bank.Account.owner"
+	}
+	return map[string]any{scope: a.Owner}
 }
 
 const accountSnapshotVersion = 1
@@ -149,7 +210,11 @@ func (a *Account) UnmarshalSnapshot(data json.RawMessage) error {
 	}
 	a.Owner, a.Currency, a.Balance, a.Open = s.Owner, s.Currency, s.Balance, s.Open
 	if a.Open {
-		a.SetUniqueKeys(map[string]any{"bank.Account.owner": a.Owner})
+		a.refreshUniqueKeys()
 	}
 	return nil
+}
+
+func (a *Account) refreshUniqueKeys() {
+	a.SetUniqueKeys(a.UniqueKeys())
 }

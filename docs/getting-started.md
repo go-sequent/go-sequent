@@ -2,6 +2,46 @@
 
 Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2–3 features and Phase 4 production hardening docs/benches.
 
+## Bank example
+
+The canonical demo lives under [`examples/bank/`](../examples/bank/): open account, deposit, withdraw, same-bank **transfer**, SyncInTxn balance projection, `tenant_id` unique keys, decimal `types.Money`, plus light AuthZ / idempotency wiring via `bank.NewDemoApp`.
+
+```go
+demo, err := bank.NewDemoApp(bank.DemoOptions{
+    StoreFactory: func(reg *event.Registry) (eventstore.Store, eventstore.TxManager, eventstore.SnapshotStore, error) {
+        s := memory.New(reg)
+        return s, s, s, nil
+    },
+    Idempotency:     idempotency.NewMemory(),
+    Authorizer:      bank.AllowBankCommands(),
+    EnableTenancyMW: true,
+})
+ctx := tenancy.WithTenant(ctx, tenantID)
+_ = demo.App.Service.Execute(ctx, &bank.OpenAccount{ /* … */ })
+bal, _ := demo.Projector.Balance(accountID)
+```
+
+## Integration tests
+
+| Path | When it runs |
+|------|----------------|
+| In-memory ITs (`TestIT_Memory_*`) | Always — included in `go test ./...` |
+| Postgres ITs (`TestIT_Postgres_*`) | Only when `GO_SEQUENT_PG_DSN` is set; otherwise skipped |
+
+```bash
+# Always-on (memory + unit tests; PG ITs skip without DSN)
+go test ./...
+
+# Bank package only
+go test ./examples/bank/ -count=1
+
+# Also exercise Postgres round-trip + optimistic concurrency
+GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
+  go test ./examples/bank/ -count=1 -run TestIT_Postgres
+```
+
+Covered scenarios: command → events → SyncInTxn projection (open / deposit / withdraw / transfer), idempotent retry, AuthZ deny, tenant-scoped unique owner, optimistic concurrency conflict (memory always; Postgres when DSN set).
+
 ## Install
 
 ```bash
