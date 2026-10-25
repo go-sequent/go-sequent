@@ -2,6 +2,7 @@ package aggregate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ type Factory func(id uuid.UUID) Root
 // uncommitted events via the EventStore + Publisher.
 type Repository struct {
 	Store     eventstore.Store
+	Snapshots eventstore.SnapshotStore // optional; enables JSON snapshot load (Phase 2)
 	Publisher eventstore.Publisher
 	Factories map[string]Factory // aggregate type → factory
 }
@@ -56,18 +58,67 @@ func (r *Repository) Load(ctx context.Context, id uuid.UUID, aggregateType strin
 	if !ok {
 		return nil, fmt.Errorf("aggregate: no factory for type %q", aggregateType)
 	}
-	events, err := r.Store.LoadStream(ctx, id)
+	agg, err := r.loadAggregate(ctx, id, f)
 	if err != nil {
-		return nil, err
-	}
-	agg := f(id)
-	if err := agg.LoadFromHistory(events); err != nil {
 		return nil, err
 	}
 	if err := agg.Invariants(); err != nil {
 		return nil, err
 	}
 	uow.Track(agg)
+	return agg, nil
+}
+
+type snapshotable interface {
+	SnapshotVersion() int
+	UnmarshalSnapshot(data json.RawMessage) error
+}
+
+func (r *Repository) loadAggregate(ctx context.Context, id uuid.UUID, f Factory) (Root, error) {
+	agg := f(id)
+	fromSeq := int64(0)
+
+	if r.Snapshots != nil {
+		ver := 1
+		if s, ok := agg.(snapshotable); ok {
+			ver = s.SnapshotVersion()
+		}
+		snap, err := r.Snapshots.LoadLatestSnapshot(ctx, id, agg.AggregateType(), ver)
+		if err != nil {
+			return nil, err
+		}
+		if snap != nil {
+			if s, ok := agg.(snapshotable); ok {
+				if err := s.UnmarshalSnapshot(snap.JSON); err != nil {
+					return nil, err
+				}
+			}
+			if sv, ok := agg.(interface{ SetVersion(int64) }); ok {
+				sv.SetVersion(snap.SequenceNumber)
+			}
+			fromSeq = snap.SequenceNumber
+		}
+	}
+
+	events, err := r.Store.LoadStream(ctx, id)
+	if err == eventstore.ErrStreamNotFound {
+		if fromSeq == 0 {
+			return nil, err
+		}
+		events = nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	var rest []event.Event
+	for _, e := range events {
+		if e.SequenceNumber() > fromSeq {
+			rest = append(rest, e)
+		}
+	}
+	if err := agg.LoadFromHistory(rest); err != nil {
+		return nil, err
+	}
 	return agg, nil
 }
 
@@ -107,6 +158,7 @@ func (r *Repository) Commit(ctx context.Context, cmd eventstore.CommandRecord) e
 			PartitionKey:    agg.PartitionKey(),
 			ExpectedVersion: agg.Version(),
 			Events:          evs,
+			UniqueKeys:      agg.UniqueKeys(),
 		})
 		allEvents = append(allEvents, evs...)
 	}

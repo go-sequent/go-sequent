@@ -17,6 +17,8 @@ type StreamAppend struct {
 	// (0 if the stream is new). First new event must be ExpectedVersion+1.
 	ExpectedVersion int64
 	Events          []event.Event
+	// UniqueKeys maps scope → JSON-serializable key value (Sequent parity).
+	UniqueKeys map[string]any
 }
 
 // CommandRecord is the persistence view of a successful command (keeps

@@ -12,16 +12,20 @@ import (
 	"github.com/wenweih/go-sequent/eventstore/memory"
 	"github.com/wenweih/go-sequent/examples/bank"
 	"github.com/wenweih/go-sequent/sequent"
+	"github.com/wenweih/go-sequent/snapshot"
 	"github.com/wenweih/go-sequent/testkit"
 	"github.com/wenweih/go-sequent/types"
 )
 
-func newApp(t *testing.T) (*sequent.App, *bank.BalanceProjector) {
+func newApp(t *testing.T) (*sequent.App, *bank.BalanceProjector, *memory.Store) {
 	t.Helper()
 	app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn})
 	bank.RegisterEvents(app.Events)
 	store := memory.New(app.Events)
+	store.SetSnapshotThreshold(2)
+	store.SetUpcasters(app.Upcasters)
 	app.Repo.Store = store
+	app.Repo.Snapshots = store
 	app.Repo.Publisher = app.Publisher
 	app.Service.Tx = store
 	app.Service.Repo = app.Repo
@@ -31,11 +35,11 @@ func newApp(t *testing.T) (*sequent.App, *bank.BalanceProjector) {
 	proj := bank.NewBalanceProjector()
 	app.RegisterProjector(proj)
 	app.RegisterHandler(&bank.Handler{Repo: app.Repo})
-	return app, proj
+	return app, proj, store
 }
 
 func TestOpenDepositWithdrawProjection(t *testing.T) {
-	app, proj := newApp(t)
+	app, proj, _ := newApp(t)
 	ctx := context.Background()
 	id := uuid.New()
 
@@ -76,7 +80,7 @@ func TestOpenDepositWithdrawProjection(t *testing.T) {
 }
 
 func TestOptimisticConcurrency(t *testing.T) {
-	app, _ := newApp(t)
+	app, _, _ := newApp(t)
 	ctx := context.Background()
 	id := uuid.New()
 	if err := app.Service.Execute(ctx, &bank.OpenAccount{
@@ -150,7 +154,7 @@ func TestBanFloat64Money(t *testing.T) {
 }
 
 func TestReloadFromStore(t *testing.T) {
-	app, _ := newApp(t)
+	app, _, _ := newApp(t)
 	ctx := context.Background()
 	id := uuid.New()
 	if err := app.Service.Execute(ctx, &bank.OpenAccount{
@@ -184,5 +188,94 @@ func TestReloadFromStore(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUniqueKeyViolation(t *testing.T) {
+	app, _, _ := newApp(t)
+	ctx := context.Background()
+	if err := app.Service.Execute(ctx, &bank.OpenAccount{
+		AccountID: uuid.New(),
+		Owner:     "dup",
+		Currency:  "USD",
+		Opening:   types.MustMoney("1", "USD"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := app.Service.Execute(ctx, &bank.OpenAccount{
+		AccountID: uuid.New(),
+		Owner:     "dup",
+		Currency:  "USD",
+		Opening:   types.MustMoney("1", "USD"),
+	})
+	if !errors.Is(err, eventstore.ErrUniqueKeyViolation) {
+		t.Fatalf("want unique key violation, got %v", err)
+	}
+}
+
+func TestWorkflowAfterCommit(t *testing.T) {
+	app, _, _ := newApp(t)
+	wf := &bank.NotifyWorkflow{}
+	app.RegisterWorkflow(wf)
+	ctx := context.Background()
+	if err := app.Service.Execute(ctx, &bank.OpenAccount{
+		AccountID: uuid.New(),
+		Owner:     "notify-me",
+		Currency:  "EUR",
+		Opening:   types.MustMoney("1", "EUR"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(wf.Opened) != 1 || wf.Opened[0] != "notify-me" {
+		t.Fatalf("opened=%v", wf.Opened)
+	}
+	if len(wf.Notified) != 1 || wf.Notified[0] != "notify-me" {
+		t.Fatalf("after-commit notified=%v", wf.Notified)
+	}
+}
+
+func TestSnapshotterRunOnce(t *testing.T) {
+	app, _, store := newApp(t)
+	ctx := context.Background()
+	id := uuid.New()
+	if err := app.Service.Execute(ctx, &bank.OpenAccount{
+		AccountID: id,
+		Owner:     "snap-owner",
+		Currency:  "USD",
+		Opening:   types.MustMoney("1", "USD"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Service.Execute(ctx, &bank.Deposit{
+		AccountID: id,
+		Amount:    types.MustMoney("1", "USD"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.MarkNeedsSnapshot(id)
+	snapper := &snapshot.Snapshotter{
+		Store:     store,
+		Snapshots: store,
+		Factories: map[string]aggregate.Factory{
+			bank.AggregateAccount: func(id uuid.UUID) aggregate.Root { return bank.NewAccount(id) },
+		},
+		ResolveType: func(ctx context.Context, id uuid.UUID) (string, error) {
+			typ, ok := store.AggregateTypeOf(id)
+			if !ok {
+				return "", errors.New("missing")
+			}
+			return typ, nil
+		},
+	}
+	n, err := snapper.RunOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("n=%d", n)
+	}
+	got, err := store.LoadLatestSnapshot(ctx, id, bank.AggregateAccount, 1)
+	if err != nil || got == nil {
+		t.Fatalf("snap=%v err=%v", got, err)
 	}
 }

@@ -1,6 +1,7 @@
 package bank
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -30,6 +31,9 @@ func NewAccount(id uuid.UUID) *Account {
 		a.Currency = ev.Currency
 		a.Balance = ev.Opening
 		a.Open = true
+		a.SetUniqueKeys(map[string]any{
+			"bank.Account.owner": a.Owner,
+		})
 	})
 	a.On(&MoneyDeposited{}, func(e event.Event) {
 		ev := e.(*MoneyDeposited)
@@ -109,6 +113,43 @@ func (a *Account) Withdraw(amount types.Money) error {
 func (a *Account) Invariants() error {
 	if a.Open && a.Balance.IsNegative() {
 		return fmt.Errorf("invariant: balance negative")
+	}
+	return nil
+}
+
+// UniqueKeys scopes owner uniqueness (Sequent-style).
+func (a *Account) UniqueKeys() map[string]any {
+	if !a.Open {
+		return nil
+	}
+	return map[string]any{"bank.Account.owner": a.Owner}
+}
+
+const accountSnapshotVersion = 1
+
+type accountSnap struct {
+	Owner    string      `json:"owner"`
+	Currency string      `json:"currency"`
+	Balance  types.Money `json:"balance"`
+	Open     bool        `json:"open"`
+}
+
+func (a *Account) SnapshotVersion() int { return accountSnapshotVersion }
+
+func (a *Account) MarshalSnapshot() (json.RawMessage, error) {
+	return json.Marshal(accountSnap{
+		Owner: a.Owner, Currency: a.Currency, Balance: a.Balance, Open: a.Open,
+	})
+}
+
+func (a *Account) UnmarshalSnapshot(data json.RawMessage) error {
+	var s accountSnap
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	a.Owner, a.Currency, a.Balance, a.Open = s.Owner, s.Currency, s.Balance, s.Open
+	if a.Open {
+		a.SetUniqueKeys(map[string]any{"bank.Account.owner": a.Owner})
 	}
 	return nil
 }

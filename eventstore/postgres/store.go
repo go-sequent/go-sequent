@@ -1,4 +1,4 @@
-// Package postgres implements EventStore on PostgreSQL (Phase 1 minimal).
+// Package postgres implements EventStore on PostgreSQL.
 package postgres
 
 import (
@@ -15,23 +15,31 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wenweih/go-sequent/event"
+	"github.com/wenweih/go-sequent/event/upcast"
 	"github.com/wenweih/go-sequent/eventstore"
 )
 
 //go:embed schema/001_phase1.sql
-var schemaSQL string
+var schemaPhase1 string
+
+//go:embed schema/002_phase2.sql
+var schemaPhase2 string
+
+//go:embed schema/003_store_events.sql
+var schemaStoreEvents string
 
 type txKey struct{}
 
 // Store is a PostgreSQL-backed event store.
 type Store struct {
-	pool     *pgxpool.Pool
-	registry *event.Registry
+	pool      *pgxpool.Pool
+	registry  *event.Registry
+	upcasters *upcast.Chain
 
-	typeMu sync.Mutex
-	cmdTypes  map[string]int16
-	aggTypes  map[string]int16
-	evtTypes  map[string]int16
+	typeMu   sync.Mutex
+	cmdTypes map[string]int16
+	aggTypes map[string]int16
+	evtTypes map[string]int16
 }
 
 // New wraps an existing pool. Call Migrate once at startup.
@@ -60,10 +68,17 @@ func (s *Store) Close() { s.pool.Close() }
 // Pool exposes the pool for projectors / tests.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
-// Migrate applies Phase 1 schema SQL from schema/001_phase1.sql.
+// SetUpcasters attaches event payload upcasters (v0).
+func (s *Store) SetUpcasters(c *upcast.Chain) { s.upcasters = c }
+
+// Migrate applies Phase 1+2 schema SQL and store_events procedure.
 func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, schemaSQL)
-	return err
+	for i, sql := range []string{schemaPhase1, schemaPhase2, schemaStoreEvents} {
+		if _, err := s.pool.Exec(ctx, sql); err != nil {
+			return fmt.Errorf("postgres: migrate step %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 // WithinTx runs fn inside a transaction bound to ctx.
@@ -175,6 +190,7 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 			return eventstore.ErrOptimisticConcurrency
 		}
 
+		var lastSeq int64 = tip
 		for _, e := range st.Events {
 			evtTypeID, err := s.ensureType(ctx, db, "event_types", e.EventType(), &s.evtTypes)
 			if err != nil {
@@ -200,6 +216,71 @@ func (s *Store) Append(ctx context.Context, cmd eventstore.CommandRecord, stream
 				}
 				return fmt.Errorf("postgres: insert event: %w", err)
 			}
+			lastSeq = e.SequenceNumber()
+		}
+		if err := s.updateUniqueKeys(ctx, db, st); err != nil {
+			return err
+		}
+		if lastSeq > tip {
+			_, _ = db.Exec(ctx, `
+				INSERT INTO aggregates_that_need_snapshots (aggregate_id, snapshot_outdated_at, snapshot_threshold)
+				SELECT $1, NOW(), COALESCE(snapshot_threshold, 100) FROM aggregates WHERE aggregate_id = $1
+				  AND $2 >= COALESCE(snapshot_threshold, 100)
+				ON CONFLICT (aggregate_id) DO UPDATE SET snapshot_outdated_at = NOW()`,
+				st.AggregateID, lastSeq)
+		}
+	}
+	return nil
+}
+
+func (s *Store) updateUniqueKeys(ctx context.Context, db q, st eventstore.StreamAppend) error {
+	keys := st.UniqueKeys
+	if keys == nil {
+		keys = map[string]any{}
+	}
+	// Delete scopes removed from the aggregate.
+	rows, err := db.Query(ctx, `SELECT scope FROM aggregate_unique_keys WHERE aggregate_id = $1`, st.AggregateID)
+	if err != nil {
+		// Phase 1 DB without unique-keys table: ignore.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			return nil
+		}
+		return err
+	}
+	var existing []string
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			rows.Close()
+			return err
+		}
+		existing = append(existing, scope)
+	}
+	rows.Close()
+	for _, scope := range existing {
+		if _, ok := keys[scope]; !ok {
+			if _, err := db.Exec(ctx, `DELETE FROM aggregate_unique_keys WHERE aggregate_id = $1 AND scope = $2`, st.AggregateID, scope); err != nil {
+				return err
+			}
+		}
+	}
+	for scope, val := range keys {
+		raw, err := json.Marshal(val)
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(ctx, `
+			INSERT INTO aggregate_unique_keys (aggregate_id, scope, key) VALUES ($1,$2,$3)
+			ON CONFLICT (aggregate_id, scope) DO UPDATE SET key = EXCLUDED.key`,
+			st.AggregateID, scope, raw,
+		)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return fmt.Errorf("%w: scope=%s", eventstore.ErrUniqueKeyViolation, scope)
+			}
+			return err
 		}
 	}
 	return nil
@@ -251,11 +332,19 @@ func (s *Store) LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.
 		if err := rows.Scan(&typ, &raw, &seq, &aggID, &at); err != nil {
 			return nil, err
 		}
+		payload := json.RawMessage(raw)
+		if s.upcasters != nil {
+			var err error
+			typ, payload, err = s.upcasters.Apply(typ, payload)
+			if err != nil {
+				return nil, err
+			}
+		}
 		e, err := s.registry.New(typ)
 		if err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(raw, e); err != nil {
+		if err := json.Unmarshal(payload, e); err != nil {
 			return nil, err
 		}
 		if env, ok := e.(event.Envelope); ok {

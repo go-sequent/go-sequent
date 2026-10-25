@@ -1,6 +1,6 @@
-# Getting started — go-sequent Phase 1
+# Getting started — go-sequent (Phase 1 + 2)
 
-This guide wires a minimal bank/ledger flow: **Command → Aggregate → EventStore → SyncInTxn Projector**.
+This guide wires a bank/ledger flow: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2 Sequent-parity features.
 
 ## Install
 
@@ -35,6 +35,7 @@ app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn})
 bank.RegisterEvents(app.Events)
 store := memory.New(app.Events)
 app.Repo.Store = store
+app.Repo.Snapshots = store // optional JSON snapshots
 app.Repo.Publisher = app.Publisher
 app.Service.Tx = store
 app.Service.Repo = app.Repo
@@ -43,6 +44,7 @@ app.RegisterAggregate(bank.AggregateAccount, func(id uuid.UUID) aggregate.Root {
     return bank.NewAccount(id)
 })
 app.RegisterProjector(bank.NewBalanceProjector())
+app.RegisterWorkflow(&bank.NotifyWorkflow{}) // excluded from projection rebuild
 app.RegisterHandler(&bank.Handler{Repo: app.Repo})
 
 err := app.Service.Execute(ctx, &bank.OpenAccount{
@@ -53,21 +55,46 @@ err := app.Service.Execute(ctx, &bank.OpenAccount{
 })
 ```
 
-## Postgres
+## Phase 2 features
 
-1. Apply schema: `eventstore/postgres/schema/001_phase1.sql` (or `store.Migrate(ctx)`).
-2. Open a pool and pass it into the store:
+### Snapshots (JSON, Q8)
+
+Implement `SnapshotVersion` / `MarshalSnapshot` / `UnmarshalSnapshot` on aggregates. Wire `Repo.Snapshots` and run `snapshot.Snapshotter` in the background.
+
+### Unique keys
+
+Override `UniqueKeys() map[string]any` (scope → value). Collisions return `eventstore.ErrUniqueKeyViolation`.
+
+### Workflows + AfterCommit
 
 ```go
-pg, err := postgres.Open(ctx, dsn, app.Events)
-if err != nil { /* ... */ }
-defer pg.Close()
-_ = pg.Migrate(ctx)
-app.Repo.Store = pg
-app.Service.Tx = pg
+workflow.RegisterAfterCommit(ctx, func(ctx context.Context) error {
+    // side effect after successful txn commit
+    return nil
+})
 ```
 
-Tables include `commands`, `aggregates`, `events`, type registries, and `tenant_id` columns (shared-schema multi-tenancy). No hash-chain / signature columns.
+### Upcasters v0
+
+```go
+app.RegisterUpcaster(upcast.FuncUpcaster{From: "old.Type", Fn: ...})
+store.SetUpcasters(app.Upcasters)
+```
+
+### Projection replay
+
+Library API (`projector/replay.Pipeline`): **prepare → replay → catchup → optimize → golive**.
+
+```bash
+go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances -stage prepare -tables account_balances
+```
+
+Full event replay needs your app to wire `EventSource` + `SyncInTxn` projectors into `replay.Pipeline` (CLI covers schema stages + migrate).
+
+### Postgres migrate
+
+`store.Migrate(ctx)` applies `001_phase1.sql`, `002_phase2.sql` (snapshots, unique keys, outbox stub, replay state), and `003_store_events.sql` (`go_sequent_store_events` procedure).
 
 ## Aggregate tests (testkit)
 
@@ -83,14 +110,15 @@ s := testkit.For(id, func(id uuid.UUID) aggregate.Root {
 _ = s.ExpectError("insufficient funds")
 ```
 
-## Locked Phase 1 defaults
+## Locked defaults
 
 | Topic | Choice |
 |-------|--------|
-| Projections | Sync in write txn |
-| Money | Decimal (`types.Money`) |
-| Integrity | DB controls only |
-| Tenancy | Shared schema + `tenant_id` |
-| Shape | Pure library (no HTTP/gRPC) |
+| Projections | Sync in write txn (Q1) |
+| Money | Decimal (`types.Money`) (Q2) |
+| Integrity | DB controls only (Q3) |
+| Tenancy | Shared schema + `tenant_id` (Q4) |
+| Snapshots | JSON (Q8) |
+| Shape | Pure library; ops CLI OK (Q7) |
 
 See [design.md](./design.md) §9–§10 for the full roadmap and decisions.

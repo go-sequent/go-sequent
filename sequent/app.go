@@ -5,8 +5,10 @@ import (
 	"github.com/wenweih/go-sequent/aggregate"
 	"github.com/wenweih/go-sequent/command"
 	"github.com/wenweih/go-sequent/event"
+	"github.com/wenweih/go-sequent/event/upcast"
 	"github.com/wenweih/go-sequent/eventstore"
 	"github.com/wenweih/go-sequent/publish"
+	"github.com/wenweih/go-sequent/workflow"
 )
 
 // PublisherMode selects how events are published after append.
@@ -26,6 +28,7 @@ type Config struct {
 type App struct {
 	Config    Config
 	Events    *event.Registry
+	Upcasters *upcast.Chain
 	Commands  *command.Router
 	Repo      *aggregate.Repository
 	Publisher *publish.SyncInTxn
@@ -41,6 +44,9 @@ func WithStore(store eventstore.Store, tx eventstore.TxManager) Option {
 		a.Repo.Store = store
 		a.Service.Tx = tx
 		a.Repo.Publisher = a.Publisher
+		if snaps, ok := store.(eventstore.SnapshotStore); ok {
+			a.Repo.Snapshots = snaps
+		}
 	}
 }
 
@@ -57,6 +63,7 @@ func New(cfg Config, opts ...Option) *App {
 	app := &App{
 		Config:    cfg,
 		Events:    events,
+		Upcasters: upcast.NewChain(),
 		Commands:  router,
 		Repo:      repo,
 		Publisher: pub,
@@ -73,6 +80,11 @@ func (a *App) RegisterProjector(h publish.Handler) {
 	a.Publisher.Register(h)
 }
 
+// RegisterWorkflow registers a workflow (excluded from projection rebuild).
+func (a *App) RegisterWorkflow(w workflow.Workflow) {
+	a.Publisher.RegisterWorkflow(w)
+}
+
 // RegisterHandler registers a command handler.
 func (a *App) RegisterHandler(h command.Handler) {
 	a.Commands.Register(h)
@@ -81,4 +93,9 @@ func (a *App) RegisterHandler(h command.Handler) {
 // RegisterAggregate registers an aggregate factory by type name.
 func (a *App) RegisterAggregate(aggregateType string, f aggregate.Factory) {
 	a.Repo.RegisterFactory(aggregateType, f)
+}
+
+// RegisterUpcaster registers an event payload upcaster (v0).
+func (a *App) RegisterUpcaster(u upcast.Upcaster) {
+	a.Upcasters.Register(u)
 }

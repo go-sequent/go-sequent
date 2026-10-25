@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wenweih/go-sequent/aggregate"
 	"github.com/wenweih/go-sequent/eventstore"
+	"github.com/wenweih/go-sequent/workflow"
 )
 
 // Committer commits the UoW for a command (typically *aggregate.Repository).
@@ -25,6 +26,7 @@ type Service struct {
 }
 
 // Execute runs one or more commands in a single transaction / UoW.
+// AfterCommit hooks registered during the txn run after a successful commit.
 func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 	if s.Router == nil {
 		return fmt.Errorf("command: Router is required")
@@ -39,7 +41,9 @@ func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 	queue := make([]Command, len(cmds))
 	copy(queue, cmds)
 
-	return s.Tx.WithinTx(ctx, func(ctx context.Context) error {
+	ctx, hooks := workflow.WithHooks(ctx)
+
+	err := s.Tx.WithinTx(ctx, func(ctx context.Context) error {
 		uow := aggregate.NewUnitOfWork()
 		ctx = aggregate.WithUnitOfWork(ctx, uow)
 		defer uow.Clear()
@@ -78,6 +82,10 @@ func (s *Service) Execute(ctx context.Context, cmds ...Command) error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return hooks.Run(ctx)
 }
 
 // RecordOf maps a Command to an eventstore.CommandRecord for persistence.

@@ -30,13 +30,14 @@ type Applier func(e event.Event)
 // Base provides Apply, sequence allocation, and uncommitted buffering.
 // Embed in domain aggregates and register appliers in the constructor.
 type Base struct {
-	id               uuid.UUID
-	aggregateType    string
-	version          int64 // last committed sequence
-	uncommitted      []event.Event
-	appliers         map[reflect.Type]Applier
-	appliersByName   map[string]Applier
-	partitionKey     string
+	id             uuid.UUID
+	aggregateType  string
+	version        int64 // last committed sequence
+	uncommitted    []event.Event
+	appliers       map[reflect.Type]Applier
+	appliersByName map[string]Applier
+	partitionKey   string
+	uniqueKeys     map[string]any
 }
 
 // Init sets identity. Call from aggregate constructors before Apply.
@@ -62,7 +63,22 @@ func (b *Base) UncommittedEvents() []event.Event {
 func (b *Base) ClearUncommitted() {
 	b.uncommitted = nil
 }
-func (b *Base) UniqueKeys() map[string]any { return nil }
+func (b *Base) UniqueKeys() map[string]any {
+	if b.uniqueKeys == nil {
+		return nil
+	}
+	out := make(map[string]any, len(b.uniqueKeys))
+	for k, v := range b.uniqueKeys {
+		out[k] = v
+	}
+	return out
+}
+
+// SetUniqueKeys replaces the unique-key map (scope → value) for commit.
+func (b *Base) SetUniqueKeys(keys map[string]any) {
+	b.uniqueKeys = keys
+}
+
 func (b *Base) PartitionKey() string {
 	if b.partitionKey != "" {
 		return b.partitionKey
@@ -70,6 +86,9 @@ func (b *Base) PartitionKey() string {
 	return ""
 }
 func (b *Base) SetPartitionKey(k string) { b.partitionKey = k }
+
+// SetVersion sets the last committed sequence (used when restoring snapshots).
+func (b *Base) SetVersion(v int64) { b.version = v }
 
 // Invariants default to nil; override on the concrete aggregate.
 func (b *Base) Invariants() error { return nil }
