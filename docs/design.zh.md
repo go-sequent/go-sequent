@@ -551,7 +551,7 @@ type Authorizer interface {
 
 | ID | 决策 |
 |----|------|
-| D1 | 模块路径 = `github.com/go-sequent/go-sequent`（取代 `github.com/wenweih/go-sequent`，2026-10-26 Asia/Shanghai）。 |
+| D1 | 模块路径 = `github.com/go-sequent/go-sequent`（更名历史见英文 `design.md` D1）。 |
 | D2 | PostgreSQL 是首个（且 MVP 唯一）EventStore 后端。 |
 | D3 | 默认发布模式 = **写事务内同步 projector**（与 Sequent 对齐；确认 Q1）。 |
 | D4 | UoW 为**上下文作用域**，非进程全局。 |
