@@ -2,7 +2,7 @@
 
 Go CQRS + Event Sourcing library for financial systems, inspired by [Sequent](https://sequent.io/) (conceptual only — no Ruby DB compatibility).
 
-**Status:** Phase 3 (finance-ready). Private / not open-source.
+**Status:** Phase 4 (production hardening). Private / not open-source (Q10).
 
 ## Module
 
@@ -12,32 +12,25 @@ github.com/wenweih/go-sequent
 
 ## Docs
 
-- [docs/getting-started.md](docs/getting-started.md) · [getting-started.zh.md](docs/getting-started.zh.md)
+- [docs/getting-started.md](docs/getting-started.md) · [zh](docs/getting-started.zh.md)
 - [docs/design.md](docs/design.md)
+- [docs/ops/](docs/ops/) — failover, rebuild, backup, partitioning
+- [docs/security/](docs/security/) — threat model, event evolution
+- [docs/bench.md](docs/bench.md) — load / conflict benchmarks
 
-## Test
+## Test & bench
 
 ```bash
 go test ./...
+go test ./bench/ -bench=. -benchmem
+GO_SEQUENT_PG_DSN='postgres://…' go test ./bench/ -bench=BenchmarkPostgres -benchmem
 ```
 
 ## Ops CLI
 
 ```bash
 go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent outbox -dsn "$DSN" -once   # Postgres table polling (Q6)
+go run ./cmd/go-sequent outbox -dsn "$DSN" -once
 ```
 
-## Layout (Phase 3 additions)
-
-| Package | Role |
-|---------|------|
-| `idempotency` | Tenant-scoped idempotency keys |
-| `security` | AuthZ at command boundary |
-| `crypto` | PayloadProtector hooks (no shredding product) |
-| `tombstone` | GDPR tombstone-only helpers |
-| `publish/outbox` | Outbox writer + poller |
-| `obs` | OpenTelemetry metrics/traces |
-| `tenancy` | UniqueScope / partition helpers |
-
-Ledger projectors remain **SyncInTxn** (Q1). No event hash-chain/signatures (Q3).
+Ledger projectors remain **SyncInTxn** (Q1). No event hash-chain/signatures (Q3). Never import Ruby Sequent DBs (Q9).

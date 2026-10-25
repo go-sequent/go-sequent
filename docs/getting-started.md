@@ -1,6 +1,6 @@
-# Getting started — go-sequent (Phase 1–3)
+# Getting started — go-sequent (Phase 1–4)
 
-Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2 parity and Phase 3 finance-ready hooks.
+Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector**, plus Phase 2–3 features and Phase 4 production hardening docs/benches.
 
 ## Install
 
@@ -102,6 +102,16 @@ go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
 ```
 
 `store.Migrate` applies schemas through Phase 3 (`004_phase3.sql`).
+
+## Phase 4 — production hardening
+
+| Resource | Path |
+|----------|------|
+| Ops runbooks (failover / rebuild / backup) | [ops/](./ops/) |
+| Partitioning guidance (shared schema, Q4) | [ops/partitioning.md](./ops/partitioning.md) |
+| Threat model | [security/threat-model.md](./security/threat-model.md) |
+| Event evolution / upcasters (no Sequent import, Q9) | [security/event-evolution.md](./security/event-evolution.md) |
+| Benchmarks | [bench.md](./bench.md) — `go test ./bench/ -bench=. -benchmem` |
 
 ## Locked defaults
 
