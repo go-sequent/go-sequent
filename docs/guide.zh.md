@@ -26,7 +26,7 @@
 16. [AuthZ](#16-authz)
 17. [Tenancy](#17-tenancy)
 18. [Money（decimal）](#18-moneydecimal)
-19. [OpenTelemetry（obs）](#19-opentelemetryobs)
+19. [OpenTelemetry（obs）](#19-opentelemetryobs) — [作用](#作用)
 20. [Migrations 与 Ops CLI](#20-migrations-与-ops-cli)
 21. [Wiring：`sequent` 门面](#21-wiringsequent-门面)
 22. [Bank 示例 walkthrough](#22-bank-示例-walkthrough)
@@ -45,6 +45,7 @@
 - 事件追加时的 **乐观并发** 与 **唯一键**
 - 账本投影默认 **写事务内同步**（`SyncInTxn`，Q1）
 - decimal **Money**、租户幂等、AuthZ 钩子、JSON 快照、墓碑式 GDPR 钩子、可选 Outbox 轮询
+- 可选 **OpenTelemetry**（`obs`）观测写路径延迟/成败/乐观冲突与 outbox 积压信号——**不是**业务审计源，详见 [§19 作用](#作用)
 
 **适合：** 余额/台账必须与写路径同事务一致；多租户共享 schema；需要可审计的 command/event 记录。
 
@@ -424,6 +425,23 @@ JSON 金额为 **字符串**，禁止 `float64`。`types.AssertNoFloatMoney` / `
 ## 19. OpenTelemetry（obs）
 
 包：`obs`（`obs/otel.go`）。仪表名：`github.com/wenweih/go-sequent`。
+
+### 作用
+
+**为什么框架里有它：** CQRS/ES 写路径（`CommandService.Execute` → 事务 → Append → SyncInTxn）对金融账本敏感。`obs` 用 **vendor 无关** 的 OpenTelemetry API，把命令延迟、成败、乐观并发冲突、以及可选的 outbox 积压暴露给运维/SLO 仪表盘——**不**把库绑死到某一家 APM。
+
+**在架构中的位置：** 可选的 `obs.Instruments`，经 `sequent.WithObs` 挂到 `command.Service.Obs`（字段，**不是** middleware）。在 `Execute` 外层开 span、记 histogram/counter；与 **command/event 审计落库**、**EventStore** 互补——OTel 是运行时信号，**不是**事实来源（source of truth）。业务对账、合规追溯仍靠事件流与 `command.AuditOf` / `command_records`。
+
+**帮运营 / 财务技术团队看见什么：**
+
+- 慢命令（`sequent.command.duration_ms` + `command.type`）
+- 冲突风暴（`sequent.optimistic_conflict.total`，高并发改同一聚合时）
+- Outbox 积压信号（`sequent.outbox.depth`，若配置了 `Config.OutboxDepth`）
+- 命令成败率（`sequent.command.total` 的 `status=ok|error`）
+
+**它不做什么：** 不替代业务审计轨迹；不自动埋点 HTTP/gRPC、projector、outbox poller；不捆绑 exporter；Provider 由应用配置。`RecordEvents` API 存在但 **未** 自动挂到 append（见下文）。
+
+**与锁定决策的关系：** 仅为可观测性钩子。事件完整性仍是 **仅 DB**（Q3）；交付形态仍是 **纯库**（Q7）——观测出口留给宿主进程。
 
 ### 接线
 

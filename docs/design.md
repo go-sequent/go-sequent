@@ -35,7 +35,7 @@
 | **Performance** | Efficient load (batch + snapshots), batch append, projection rebuild with parallelism; predictable latency under load. |
 | **HA** | PostgreSQL primary/replica patterns documented; read-scale projections; failover notes; no silent split-brain writes. |
 | **Security** | Authz hooks at command boundary; PII/encryption hooks; secrets never logged; multi-tenant isolation hooks. |
-| **Observability** | Structured tracing/metrics around command latency, conflicts, projector lag, rebuild progress. |
+| **Observability** | Optional OpenTelemetry (`obs`) on the write path: command latency/outcome, OCC conflicts, optional outbox depth — ops/SLO signals, **not** the audit source of truth; finer projector/rebuild spans remain aspirational beyond current `WithObs` hooks. |
 | **Developer UX** | Explicit interfaces, minimal magic, test helpers (given events / when command / expect events). |
 
 ### 1.2 Non-Goals（非目标）— v1 / near-term
@@ -394,9 +394,13 @@ Mirror Sequent 8:
 
 ### 6.6 Observability & SLA / HA
 
-**Metrics:** command latency, validation failures, optimistic conflicts, events appended/sec, projector lag (async), rebuild progress, outbox depth.
+**Role of OTel in-framework:** vendor-neutral hooks (`obs` + `sequent.WithObs`) so operators can see write-path health without choosing an APM inside the library. Complementary to EventStore / command audit — **not** a business audit trail (Q3 integrity stays DB-only; Q7 keeps exporters in the host app). See [guide §19 Role and purpose](./guide.md#role-and-purpose).
 
-**Tracing:** span per `ExecuteCommands`, child per handler, store append, each projector.
+**Implemented today (`obs`):** `sequent.Execute` span; metrics `sequent.command.duration_ms`, `sequent.command.total`, `sequent.optimistic_conflict.total`; optional `sequent.outbox.depth`. `RecordEvents` API exists but is not auto-hooked on append.
+
+**Metrics (design target):** command latency, validation failures, optimistic conflicts, events appended/sec, projector lag (async), rebuild progress, outbox depth.
+
+**Tracing (design target):** span per `Execute` (done); child per handler, store append, each projector (not yet).
 
 **Logging:** structured; never log secrets/PII payloads by default (redactor).
 

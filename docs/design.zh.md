@@ -38,7 +38,7 @@
 | **性能** | 高效加载（批量 + 快照）、批量追加、投影并行重建；负载下延迟可预期。 |
 | **高可用（HA）** | 文档化 PostgreSQL 主从模式；投影读扩展；故障切换说明；禁止静默双写脑裂。 |
 | **安全** | 在 command 边界挂载 AuthZ；PII/加密钩子；密钥永不入日志；多租户隔离钩子。 |
-| **可观测性** | 围绕命令延迟、冲突、projector 滞后、重建进度的结构化 tracing / metrics。 |
+| **可观测性** | 可选 OpenTelemetry（`obs`）覆盖写路径：命令延迟/成败、乐观冲突、可选 outbox 深度——运维/SLO 信号，**不是**审计事实源；更细的 projector/重建 span 相对当前 `WithObs` 钩子仍属愿景。 |
 | **开发体验** | 显式接口、少魔法、测试辅助（given events / when command / expect events）。 |
 
 ### 1.2 非目标 — v1 / 近期
@@ -397,9 +397,13 @@ github.com/wenweih/go-sequent
 
 ### 6.6 可观测性与 SLA / HA
 
-**指标：** 命令延迟、校验失败、乐观冲突、每秒追加事件数、projector 滞后（异步）、重建进度、outbox 深度。
+**框架内 OTel 的作用：** 通过厂商无关钩子（`obs` + `sequent.WithObs`）让运维看到写路径健康度，而不在库内绑定某一 APM。与 EventStore / 命令审计互补——**不是**业务审计轨迹（Q3 完整性仍仅 DB；Q7 将 exporter 留在宿主应用）。见 [指南 §19 作用](./guide.zh.md#作用)。
 
-**链路追踪：** 每个 `ExecuteCommands` 一个 span，子 span 覆盖 handler、store append、各 projector。
+**当前已实现（`obs`）：** span `sequent.Execute`；指标 `sequent.command.duration_ms`、`sequent.command.total`、`sequent.optimistic_conflict.total`；可选 `sequent.outbox.depth`。`RecordEvents` API 存在但未自动挂到 append。
+
+**指标（设计目标）：** 命令延迟、校验失败、乐观冲突、每秒追加事件数、projector 滞后（异步）、重建进度、outbox 深度。
+
+**链路追踪（设计目标）：** 每个 `Execute` 一个 span（已有）；handler / store append / 各 projector 子 span（尚未）。
 
 **日志：** 结构化；默认不记录密钥/PII 载荷（使用脱敏器）。
 

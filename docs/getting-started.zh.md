@@ -57,6 +57,8 @@ go get github.com/wenweih/go-sequent@latest
 
 ### OpenTelemetry 最小接线
 
+**作用：** 可选、厂商无关的钩子，观测 CQRS/ES **写路径**（命令延迟、成败、乐观冲突、可选 outbox 积压）供运维/SLO 使用——**不能**替代事件/审计存储。详见 [指南 §19 作用](./guide.zh.md#作用)。
+
 应用自行设置全局 Tracer/Meter（库用全局；未设则为 noop）。**无**内置 OTLP exporter。`RecordEvents` **不会**在 append 路径自动调用。完整指标/span 表见 [指南 §19](./guide.zh.md#19-opentelemetryobs)。
 
 ```go

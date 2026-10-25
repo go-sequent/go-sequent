@@ -120,7 +120,9 @@ go run ./cmd/go-sequent outbox -dsn "$GO_SEQUENT_PG_DSN" -once
 
 ### OpenTelemetry
 
-Host app sets global Tracer/Meter providers (library uses globals; noop if unset). No OTLP exporter is bundled. Full table of spans/metrics and caveats (including that `RecordEvents` is **not** auto-hooked on append): [guide §19](./guide.md#19-opentelemetry-obs).
+**Role:** optional, vendor-neutral hooks to observe the CQRS/ES **write path** (command latency, success/error, OCC conflicts, optional outbox depth) for ops/SLO — **not** a substitute for the event/audit store. Details: [guide §19 Role and purpose](./guide.md#role-and-purpose).
+
+Host app sets global Tracer/Meter providers (library uses globals; noop if unset). No OTLP exporter is bundled. Metric/span table and caveats (`RecordEvents` not auto-hooked): [guide §19](./guide.md#19-opentelemetry-obs).
 
 ```go
 // App-side: otel.SetTracerProvider / SetMeterProvider + your exporter

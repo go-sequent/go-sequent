@@ -26,7 +26,7 @@ Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC
 16. [AuthZ](#16-authz)
 17. [Tenancy](#17-tenancy)
 18. [Money (decimal)](#18-money-decimal)
-19. [OpenTelemetry (`obs`)](#19-opentelemetry-obs)
+19. [OpenTelemetry (`obs`)](#19-opentelemetry-obs) — [Role and purpose](#role-and-purpose)
 20. [Migrations and ops CLI](#20-migrations-and-ops-cli)
 21. [Wiring: the `sequent` façade](#21-wiring-the-sequent-façade)
 22. [Bank example walkthrough](#22-bank-example-walkthrough)
@@ -45,6 +45,7 @@ Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC
 - **Optimistic concurrency** and **unique keys** on append
 - Ledger projections **synchronously in the write txn** (`SyncInTxn`, Q1)
 - Decimal **Money**, tenant-scoped idempotency, AuthZ hooks, JSON snapshots, tombstone GDPR hooks, optional outbox polling
+- Optional **OpenTelemetry** (`obs`) for write-path latency / success-error / OCC conflicts and outbox backlog signals — **not** a business audit source; see [§19 Role and purpose](#role-and-purpose)
 
 **Use when:** balances must not lag the write path; you want shared-schema multi-tenancy; you need auditable command/event records.
 
@@ -262,6 +263,23 @@ Shared schema + `tenant_id` (Q4). `tenancy.WithTenant` + middleware copies into 
 ## 19. OpenTelemetry (`obs`)
 
 Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/wenweih/go-sequent`.
+
+### Role and purpose
+
+**Why it exists:** The CQRS/ES write path (`CommandService.Execute` → txn → Append → SyncInTxn) is latency- and conflict-sensitive for ledgers. `obs` exposes command duration, outcomes, optimistic-concurrency conflicts, and optional outbox depth through the **vendor-neutral** OpenTelemetry API — without coupling the library to a specific APM.
+
+**Where it sits:** Optional `obs.Instruments` attached via `sequent.WithObs` onto `command.Service.Obs` (a field, **not** middleware). Spans wrap `Execute`; metrics feed ops/SLO dashboards. This is **complementary** to audit metadata and the EventStore — OTel is a runtime signal, **not** the source of truth. Reconciliation and compliance still rely on the event stream and `command.AuditOf` / `command_records`.
+
+**What operators / finance tech teams can see:**
+
+- Slow commands (`sequent.command.duration_ms` + `command.type`)
+- Conflict storms (`sequent.optimistic_conflict.total` under hot aggregates)
+- Outbox backlog signal (`sequent.outbox.depth` when `Config.OutboxDepth` is set)
+- Command success/error rates (`sequent.command.total` with `status=ok|error`)
+
+**What it does not do:** Replace the business audit trail; auto-instrument HTTP/gRPC, projectors, or the outbox poller; ship an exporter; own the Provider (the app does). `RecordEvents` exists but is **not** auto-hooked on append (see below).
+
+**Locked decisions:** Observability hooks only. Event integrity remains **DB-only** (Q3); delivery shape remains a **pure library** (Q7) — export stays in the host process.
 
 ### Wiring
 
