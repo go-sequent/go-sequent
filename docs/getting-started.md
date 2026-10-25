@@ -6,7 +6,12 @@ Bank/ledger loop: **Command → Aggregate → EventStore → SyncInTxn Projector
 
 ## Bank example
 
-The canonical demo lives under [`examples/bank/`](../examples/bank/): open account, deposit, withdraw, same-bank **transfer**, SyncInTxn balance projection, `tenant_id` unique keys, decimal `types.Money`, plus light AuthZ / idempotency wiring via `bank.NewDemoApp`.
+| Path | Role |
+|------|------|
+| [`examples/bank/`](../examples/bank/) | **Demo** — in-memory SyncInTxn balances, always-on ITs |
+| [`examples/bankpg/`](../examples/bankpg/) | **Production-shaped** — Postgres + SQL `bank_account_balances` (skip without `GO_SEQUENT_PG_DSN`) |
+
+Demo: open / deposit / withdraw / transfer, `tenant_id` unique keys, decimal Money, AuthZ / idempotency via `bank.NewDemoApp`.
 
 ```go
 demo, err := bank.NewDemoApp(bank.DemoOptions{
@@ -34,15 +39,14 @@ bal, _ := demo.Projector.Balance(accountID)
 # Always-on (memory + unit tests; PG ITs skip without DSN)
 go test ./...
 
-# Bank package only
-go test ./examples/bank/ -count=1
+go test ./examples/bank/ ./examples/bankpg/ -count=1
 
-# Also exercise Postgres round-trip + optimistic concurrency
+# SQL ledger + OCC + projection rebuild
 GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
-  go test ./examples/bank/ -count=1 -run TestIT_Postgres
+  go test ./examples/bankpg/ -count=1 -run TestIT_BankPG
 ```
 
-Covered scenarios: command → events → SyncInTxn projection (open / deposit / withdraw / transfer), idempotent retry, AuthZ deny, tenant-scoped unique owner, optimistic concurrency conflict (memory always; Postgres when DSN set).
+Covered scenarios: command → events → SyncInTxn projection, idempotent retry, AuthZ deny, tenant unique owner, OCC (memory demo always; SQL balances in bankpg when DSN set).
 
 ## Install
 

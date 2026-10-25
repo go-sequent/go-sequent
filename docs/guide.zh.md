@@ -541,24 +541,16 @@ Bank 演示封装：`bank.NewDemoApp(DemoOptions{StoreFactory, Idempotency, Auth
 
 ## 22. Bank 示例 walkthrough
 
-路径：[`examples/bank/`](../examples/bank/)
-
-| 文件 | 内容 |
+| 路径 | 角色 |
 |------|------|
-| `events.go` | Opened / Deposited / Withdrawn / TransferDebited / TransferCredited |
-| `account.go` | 聚合 + Snapshot + 租户作用域 unique owner |
-| `commands.go` | Open / Deposit / Withdraw / Transfer |
-| `handler.go` | 单 UoW 双聚合转账 |
-| `projector.go` | SyncInTxn 余额视图 |
-| `workflow.go` | AfterCommit 通知 |
-| `app.go` | `NewDemoApp` 接线 |
-| `integration_*_test.go` | 内存 IT 始终跑；Postgres 需 `GO_SEQUENT_PG_DSN` |
+| [`examples/bank/`](../examples/bank/) | **演示**：内存 SyncInTxn 余额 |
+| [`examples/bankpg/`](../examples/bankpg/) | **生产形态**：Postgres + SQL `bank_account_balances`（`projector.Persistor`） |
 
-建议阅读顺序：`commands` → `account` → `handler` → `projector` → `app` → IT。
+演示包：`events` / `account` / `commands` / `handler` / 内存 `projector` / `workflow` / `NewDemoApp`。生产形态复用同一领域，见 `bankpg/README.zh.md`。
 
 ```bash
-go test ./examples/bank/ -count=1
-GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bank/ -run TestIT_Postgres
+go test ./examples/bank/ ./examples/bankpg/ -count=1
+GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 ```
 
 ---

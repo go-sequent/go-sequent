@@ -6,11 +6,16 @@
 
 ## Bank 示例
 
-规范演示在 [`examples/bank/`](../examples/bank/)：开户、存款、取款、同行 **转账**、SyncInTxn 余额投影、`tenant_id` 唯一键、decimal `types.Money`，以及通过 `bank.NewDemoApp` 轻量接入 AuthZ / 幂等。
+| 路径 | 角色 |
+|------|------|
+| [`examples/bank/`](../examples/bank/) | **演示** — 内存 SyncInTxn 余额，IT 始终可跑 |
+| [`examples/bankpg/`](../examples/bankpg/) | **生产形态** — Postgres + SQL `bank_account_balances`（无 DSN 则 skip） |
+
+演示：开户 / 存 / 取 / 转账、`tenant_id` 唯一键、decimal Money、`bank.NewDemoApp`。详见 [`bankpg/README.zh.md`](../examples/bankpg/README.zh.md)。
 
 ```go
 demo, err := bank.NewDemoApp(bank.DemoOptions{
-    StoreFactory: /* memory 或 postgres */,
+    StoreFactory: /* memory */,
     Idempotency: idempotency.NewMemory(),
     Authorizer: bank.AllowBankCommands(),
     EnableTenancyMW: true,
@@ -21,18 +26,18 @@ demo, err := bank.NewDemoApp(bank.DemoOptions{
 
 | 路径 | 何时运行 |
 |------|----------|
-| 内存 ITs（`TestIT_Memory_*`） | 始终 — 包含在 `go test ./...` |
-| Postgres ITs（`TestIT_Postgres_*`） | 仅当设置 `GO_SEQUENT_PG_DSN`；否则 skip |
+| `examples/bank` 内存 ITs | 始终 — `go test ./...` |
+| `bank` / `bankpg` Postgres ITs | 设 `GO_SEQUENT_PG_DSN`；否则 skip |
 
 ```bash
 go test ./...
-go test ./examples/bank/ -count=1
+go test ./examples/bank/ ./examples/bankpg/ -count=1
 
 GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
-  go test ./examples/bank/ -count=1 -run TestIT_Postgres
+  go test ./examples/bankpg/ -count=1 -run TestIT_BankPG
 ```
 
-覆盖：命令 → 事件 → SyncInTxn 投影（开户/存/取/转账）、幂等重试、AuthZ 拒绝、租户唯一 owner、乐观并发冲突（内存始终；Postgres 需 DSN）。
+覆盖：命令 → 事件 → SyncInTxn 投影、幂等、AuthZ、租户唯一 owner、OCC；bankpg 另含 SQL 余额与投影回放。
 
 ## 安装
 

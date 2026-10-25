@@ -11,7 +11,7 @@ import (
 )
 
 // BalanceProjector keeps an in-memory ledger balance view (SyncInTxn demo).
-// Production apps would use projector.Persistor against SQL tables.
+// Production-shaped SQL projection: see examples/bankpg.SQLBalanceProjector.
 type BalanceProjector struct {
 	mu       sync.RWMutex
 	balances map[uuid.UUID]types.Money

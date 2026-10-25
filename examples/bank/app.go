@@ -16,7 +16,8 @@ import (
 // StoreFactory builds store backends bound to the app event registry.
 type StoreFactory func(reg *event.Registry) (store eventstore.Store, tx eventstore.TxManager, snaps eventstore.SnapshotStore, err error)
 
-// DemoOptions configures a fully wired demo bank app.
+// DemoOptions configures the in-memory / lightweight demo bank app.
+// For a Postgres SQL ledger sample see examples/bankpg.
 type DemoOptions struct {
 	// StoreFactory is preferred: receives the app registry for correct decode.
 	StoreFactory StoreFactory

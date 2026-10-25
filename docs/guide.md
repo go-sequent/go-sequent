@@ -370,16 +370,17 @@ Bank helper: `bank.NewDemoApp` with `StoreFactory` so the store shares the app e
 
 ## 22. Bank example walkthrough
 
-Directory: [`examples/bank/`](../examples/bank/)
+| Path | Role |
+|------|------|
+| [`examples/bank/`](../examples/bank/) | **Demo** — in-memory SyncInTxn balances |
+| [`examples/bankpg/`](../examples/bankpg/) | **Production-shaped** — Postgres + SQL balances via `projector.Persistor` |
 
-Open / deposit / withdraw / same-UoW **transfer**, SyncInTxn balances, tenant unique owner, decimal money, AuthZ + idempotency via `NewDemoApp`.
+Demo: open / deposit / withdraw / transfer, tenant unique owner, decimal money, AuthZ + idempotency. See `bankpg/README.md` for SQL wiring and gaps (no RLS product, optional Outbox).
 
 ```bash
-go test ./examples/bank/ -count=1
-GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bank/ -run TestIT_Postgres
+go test ./examples/bank/ ./examples/bankpg/ -count=1
+GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 ```
-
-Read order: `commands` → `account` → `handler` → `projector` → `app` → integration tests.
 
 ---
 
