@@ -2,7 +2,7 @@
 
 账本闭环：**Command → Aggregate → EventStore → SyncInTxn Projector**，含 Phase 2–3 能力与 Phase 4 生产加固文档/基准。
 
-**完整参考：** [框架指南（中文）](./guide.zh.md) · [Framework guide (EN)](./guide.md) — AggregateRoot、Command、Event、CommandService、Repository、EventStore、Projector、Workflow、快照等。
+**完整参考：** [框架指南（中文）](./guide.zh.md) · [Framework guide (EN)](./guide.md) — AggregateRoot、Command、Event、CommandService、Repository、EventStore、Projector、Workflow、快照等。术语见 [名词释义](./guide.zh.md#26-名词释义)（含 [账本投影](./guide.zh.md#gloss-ledger-projection)）。
 
 ## Bank 示例
 

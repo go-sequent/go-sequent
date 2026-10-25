@@ -33,7 +33,8 @@ Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC
 23. [Testing guidance](#23-testing-guidance)
 24. [Ops and security pointers](#24-ops-and-security-pointers)
 25. [Not implemented / Phase boundaries vs Sequent Ruby](#25-not-implemented--phase-boundaries-vs-sequent-ruby)
-26. [Locked decisions (Q1–Q10)](#26-locked-decisions-q1q10)
+26. [Glossary](#26-glossary)
+27. [Locked decisions (Q1–Q10)](#27-locked-decisions-q1q10)
 
 ---
 
@@ -43,11 +44,13 @@ Module: `github.com/wenweih/go-sequent` · Shape: **pure library** (no HTTP/gRPC
 
 - One **DB transaction + context-scoped UnitOfWork** per `Execute`
 - **Optimistic concurrency** and **unique keys** on append
-- Ledger projections **synchronously in the write txn** (`SyncInTxn`, Q1)
+- [Ledger projections](#gloss-ledger-projection) **synchronously in the write txn** ([`SyncInTxn`](#gloss-syncintxn), Q1)
 - Decimal **Money**, tenant-scoped idempotency, AuthZ hooks, JSON snapshots, tombstone GDPR hooks, optional outbox polling
 - Optional **OpenTelemetry** (`obs`) for write-path latency / success-error / OCC conflicts and outbox backlog signals — **not** a business audit source; see [§19 Role and purpose](#role-and-purpose)
 
-**Use when:** balances must not lag the write path; you want shared-schema multi-tenancy; you need auditable command/event records.
+**Use when:** balances must not lag the write path ([read-your-writes](#gloss-read-your-writes)); you want shared-schema multi-tenancy; you need auditable command/event records.
+
+Terms: [§26 Glossary](#26-glossary).
 
 **Not a web framework:** no Rails/Sinatra generators, no HTTP API, no ActiveRecord. Embed the library in your own process.
 
@@ -423,11 +426,142 @@ Phases: 1 core loop → 2 snapshots/upcast/workflow/replay skeleton → 3 idempo
 
 ---
 
-## 26. Locked decisions (Q1–Q10)
+## 26. Glossary
+
+Definitions match **current go-sequent behavior** and locked decisions (Q1–Q10). Chinese primary: [名词释义](./guide.zh.md#26-名词释义). Stable anchors (`#gloss-…`) are shared across EN/ZH where linked from §1.
+
+<a id="gloss-ledger-projection"></a>
+
+**Ledger projection（账本投影）**  
+Read model for balances/ledgers. Q1 requires updates **inside the write transaction** (`SyncInTxn`) so [read-your-writes](#gloss-read-your-writes) holds after commit. Bank `BalanceProjector` is the demo (in-memory; production should persist via SQL).
+
+<a id="gloss-projector"></a>
+
+**Projector / projection**  
+A `publish.Handler` (optionally with `ManagedTables`) that updates read models. Registered on `SyncInTxn`, invoked after Append and before commit; failure rolls back the write txn. Rebuild uses `PublishProjectorsOnly` (skips Workflows).
+
+<a id="gloss-aggregate"></a>
+
+**AggregateRoot / aggregate**  
+Consistency boundary. Embed `aggregate.Base`; mutate state only in appliers; command methods `Apply` events after validation. Loaded/committed via Repository + UoW; never share across goroutines.
+
+<a id="gloss-command"></a>
+
+**Command**  
+Intent to change the system. Has `CommandType`, optional `AggregateID`, `Meta`; may `Validate`. Enters via `CommandService.Execute` (middleware / AuthZ / handler).
+
+<a id="gloss-event"></a>
+
+**Event**  
+Past-tense fact with type name and envelope (aggregate id, sequence, time). Stored then drives Projectors/Workflows; decoded via `event.Registry`.
+
+<a id="gloss-eventstore"></a>
+
+**EventStore**  
+Persists command records and aggregate streams with OCC and unique-key checks. Implementations: memory, postgres. Apps usually go through the Repository.
+
+<a id="gloss-uow"></a>
+
+**UnitOfWork (context-scoped)**  
+Per-`Execute` identity map on `context`. `Add`/`Load` reuse one instance; `Commit` collects uncommitted events in load order. Never share across goroutines.
+
+<a id="gloss-occ"></a>
+
+**Optimistic concurrency (OCC)**  
+Append requires `ExpectedVersion` = stream tip; else `ErrOptimisticConcurrency`. `obs` can count conflict storms.
+
+<a id="gloss-unique-keys"></a>
+
+**Unique keys**  
+`UniqueKeys()` map `scope → value` (e.g. tenant-scoped owner). DB unique violation → `ErrUniqueKeyViolation`.
+
+<a id="gloss-idempotency"></a>
+
+**Idempotency**  
+Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: memory / postgres.
+
+<a id="gloss-tenant"></a>
+
+**Tenant vs User**  
+`Meta.TenantID` is the multi-tenant isolation unit (Q4: shared schema + `tenant_id`). `Meta.UserID` is the actor — **do not** trust client UserID alone; use `AuthContext` + AuthZ. `tenancy` middleware can copy tenant from ctx.
+
+<a id="gloss-outbox"></a>
+
+**Outbox**  
+Transactional outbound message rows drained by polling (Q6). Ledger projectors stay on SyncInTxn; outbox is for async/external side effects.
+
+<a id="gloss-aftercommit"></a>
+
+**AfterCommit**  
+Hooks via `workflow.RegisterAfterCommit`, run only after a **successful** commit (notifications, non-ledger side effects). Failure does not undo committed events.
+
+<a id="gloss-workflow"></a>
+
+**Workflow**  
+Event orchestration handler (`RegisterWorkflow`). May run SyncInTxn but is **excluded** from projection rebuild. May register AfterCommit.
+
+<a id="gloss-snapshot"></a>
+
+**Snapshot**  
+JSON fold of aggregate state (Q8) to speed loads: snapshot + later events. `snapshot.Snapshotter` can batch in the background.
+
+<a id="gloss-upcaster"></a>
+
+**Upcaster**  
+Transforms old event payloads on load (`event/upcast`). **Not** for importing Ruby Sequent DBs (Q9).
+
+<a id="gloss-syncintxn"></a>
+
+**SyncInTxn**  
+Default publish mode: projectors (then workflows) run inside the write txn. Required for ledger projections (Q1).
+
+<a id="gloss-compensating"></a>
+
+**Compensating event**  
+A new domain event that offsets/corrects prior facts without rewriting history. Used with tombstones for GDPR-style scrubbing in projections.
+
+<a id="gloss-tombstone"></a>
+
+**Tombstone**  
+Q5 strategy: emit markers such as `gdpr.SubjectTombstoned`; projectors scrub or stop serving PII. Product path is **not** crypto-shredding.
+
+<a id="gloss-read-your-writes"></a>
+
+**Read-your-writes**  
+After a successful write, the same client’s read should see that update. Ledger SyncInTxn achieves this: balance projection updates in the same txn before commit returns.
+
+<a id="gloss-authz"></a>
+
+**AuthZ**  
+Authorization at the command boundary (`security.Authorizer` / `WithAuthorizer`). Denials → `ErrDenied`. Separate from AuthN; no event signing (Q3).
+
+<a id="gloss-meta"></a>
+
+**Meta (command metadata)**  
+`command.Meta`: CommandID, TenantID, UserID, IdempotencyKey, Correlation/Causation, Source, AuthContext, …. `AuditOf` builds an audit snapshot.
+
+<a id="gloss-partition-key"></a>
+
+**partition_key**  
+Partition hint on aggregates/streams (often from `tenancy.PartitionKey`), for physical partitioning or unique-key scoping inside a shared schema — not schema-per-tenant.
+
+<a id="gloss-money"></a>
+
+**Money (decimal)**  
+`types.Money`: decimal amount + currency; JSON amount is a string. Ban `float64` (Q2).
+
+<a id="gloss-obs"></a>
+
+**obs / OpenTelemetry**  
+Optional write-path telemetry (latency, outcome, OCC, optional outbox depth). **Not** the business audit source; app owns Providers. See [§19](#19-opentelemetry-obs).
+
+---
+
+## 27. Locked decisions (Q1–Q10)
 
 | # | Choice |
 |---|--------|
-| Q1 | Ledger projections **SyncInTxn** |
+| Q1 | [Ledger projections](#gloss-ledger-projection) **SyncInTxn** |
 | Q2 | Money = **decimal** (ban float64) |
 | Q3 | Integrity = **DB only** |
 | Q4 | Tenancy = **shared schema + tenant_id** |

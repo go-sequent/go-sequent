@@ -33,7 +33,8 @@
 23. [测试指引](#23-测试指引)
 24. [运维与安全文档指针](#24-运维与安全文档指针)
 25. [相对 Sequent Ruby：未实现 / 阶段边界](#25-相对-sequent-ruby未实现--阶段边界)
-26. [锁定决策摘要（Q1–Q10）](#26-锁定决策摘要q1q10)
+26. [名词释义](#26-名词释义)
+27. [锁定决策摘要（Q1–Q10）](#27-锁定决策摘要q1q10)
 
 ---
 
@@ -43,11 +44,13 @@
 
 - 单次 `Execute` 内的 **事务 + 上下文作用域 UnitOfWork**
 - 事件追加时的 **乐观并发** 与 **唯一键**
-- 账本投影默认 **写事务内同步**（`SyncInTxn`，Q1）
+- [账本投影](#gloss-ledger-projection)默认 **写事务内同步**（[`SyncInTxn`](#gloss-syncintxn)，Q1）
 - decimal **Money**、租户幂等、AuthZ 钩子、JSON 快照、墓碑式 GDPR 钩子、可选 Outbox 轮询
 - 可选 **OpenTelemetry**（`obs`）观测写路径延迟/成败/乐观冲突与 outbox 积压信号——**不是**业务审计源，详见 [§19 作用](#作用)
 
-**适合：** 余额/台账必须与写路径同事务一致；多租户共享 schema；需要可审计的 command/event 记录。
+**适合：** 余额/台账必须与写路径同事务一致（[读己之写](#gloss-read-your-writes)）；多租户共享 schema；需要可审计的 command/event 记录。
+
+术语速查见 [§26 名词释义](#26-名词释义)。
 
 **不适合作为开箱 Web 框架：** 不提供 Rails/Sinatra 式集成、不提供 HTTP API、不绑定 ActiveRecord。把本库嵌进你自己的服务进程即可。
 
@@ -607,11 +610,142 @@ Phase 边界简述：Phase 1 核心闭环 → Phase 2 快照/upcast/workflow/rep
 
 ---
 
-## 26. 锁定决策摘要（Q1–Q10）
+## 26. 名词释义
+
+下列释义对齐 **当前 go-sequent 实现** 与锁定决策（Q1–Q10）。英文对照见 [Glossary](./guide.md#26-glossary)。
+
+<a id="gloss-ledger-projection"></a>
+
+**账本投影（ledger projection）**  
+用于余额/台账等金融读模型的投影。Q1 要求在 **写事务内同步**（`SyncInTxn`）更新，使提交成功后即可 [读己之写](#gloss-read-your-writes)，避免异步滞后导致余额不一致。Bank 示例的 `BalanceProjector` 即此类（演示用内存；生产应落 SQL）。
+
+<a id="gloss-projector"></a>
+
+**投影 / Projector**  
+实现 `publish.Handler`（+ 可选 `ManagedTables`）的读模型更新器。注册到 `SyncInTxn` 后，在 Append 之后、事务提交前按事件调用。失败则整笔写事务回滚。重建时用 `PublishProjectorsOnly` 跳过 Workflow。
+
+<a id="gloss-aggregate"></a>
+
+**聚合 / AggregateRoot**  
+领域一致性边界。嵌入 `aggregate.Base`：只在 applier 中突变状态；命令方法校验后 `Apply` 事件。通过 Repository + UoW 加载/提交，禁止跨 goroutine 共享实例。
+
+<a id="gloss-command"></a>
+
+**命令 / Command**  
+改变系统的意图（未发生之事）。带 `CommandType`、可选 `AggregateID`、`Meta`；可实现 `Validate`。经 `CommandService.Execute` 进入中间件 / AuthZ / Handler。
+
+<a id="gloss-event"></a>
+
+**事件 / Event**  
+已发生的过去式事实。含类型名与 envelope（aggregate id、序号、时间）。写入 EventStore 后驱动 Projector / Workflow；经 `event.Registry` 反序列化。
+
+<a id="gloss-eventstore"></a>
+
+**事件存储 / EventStore**  
+持久化 command 记录与聚合事件流，并做乐观并发与唯一键检查。实现：`eventstore/memory`、`eventstore/postgres`。业务通常经 Repository，而非直接 `Append`。
+
+<a id="gloss-uow"></a>
+
+**UnitOfWork（上下文作用域）**  
+单次 `Execute` 事务内挂在 `context` 上的聚合身份映射。`Add`/`Load` 复用同一实例；`Commit` 按加载顺序收集未提交事件。禁止跨 goroutine 共享。
+
+<a id="gloss-occ"></a>
+
+**乐观并发 / OCC**  
+追加时 `ExpectedVersion` 须等于流尖端；冲突返回 `ErrOptimisticConcurrency`。`obs` 可计数冲突风暴。
+
+<a id="gloss-unique-keys"></a>
+
+**唯一键 / Unique keys**  
+聚合 `UniqueKeys()` 返回的 `scope → value`（如租户作用域 owner）。库级唯一约束冲突 → `ErrUniqueKeyViolation`。
+
+<a id="gloss-idempotency"></a>
+
+**幂等 / Idempotency**  
+键空间 `(TenantID, IdempotencyKey)`。成功处理后同键重试默认短路成功；`Strict` 时返回 `ErrReplay`。实现：memory / postgres。
+
+<a id="gloss-tenant"></a>
+
+**租户 / Tenant vs 用户 / User**  
+`Meta.TenantID` 标识多租户隔离单元（Q4：共享 schema + `tenant_id`）。`Meta.UserID` 为操作者；**勿**仅信任客户端 UserID——用 `AuthContext` + AuthZ。`tenancy` 中间件可从 ctx 写入 TenantID。
+
+<a id="gloss-outbox"></a>
+
+**Outbox**  
+事务内与事件一并写入的出站消息表；由轮询器异步投递（Q6）。账本投影仍走 SyncInTxn；Outbox 只服务外部/异步副作用。
+
+<a id="gloss-aftercommit"></a>
+
+**AfterCommit**  
+`workflow.RegisterAfterCommit` 登记的钩子，仅在写事务 **提交成功后** 运行（通知、非账本副作用）。失败不影响已提交事件。
+
+<a id="gloss-workflow"></a>
+
+**Workflow**  
+对事件做编排的处理器（`RegisterWorkflow`）。仍可在 SyncInTxn 内运行，但 **不参与** 投影重建。可登记 AfterCommit。
+
+<a id="gloss-snapshot"></a>
+
+**快照 / Snapshot**  
+聚合状态的 JSON 折叠点（Q8），加速加载：先快照再应用后续事件。`snapshot.Snapshotter` 可后台批量生成。
+
+<a id="gloss-upcaster"></a>
+
+**Upcaster**  
+加载路径上把旧事件 payload 升级到当前形状的转换器（`event/upcast`）。**不**用于导入 Ruby Sequent 库（Q9）。
+
+<a id="gloss-syncintxn"></a>
+
+**SyncInTxn**  
+默认发布模式：在写事务内同步调用 Projector（再 Workflow）。账本投影必须用此模式（Q1）。
+
+<a id="gloss-compensating"></a>
+
+**补偿事件**  
+用新的领域事件表达“抵消/纠正”既有事实（而非改写历史）。GDPR 路径上与墓碑配合：投影停止暴露可识别数据，而不是静默改旧事件。
+
+<a id="gloss-tombstone"></a>
+
+**墓碑（tombstone）**  
+Q5 策略：发出如 `gdpr.SubjectTombstoned` 的标记，投影侧擦除或停服 PII。产品路径 **不是** crypto-shredding。
+
+<a id="gloss-read-your-writes"></a>
+
+**读己之写 / read-your-writes**  
+同一客户端在写成功后立即读取，应看到自己的更新。账本投影 SyncInTxn 即为此：提交成功则余额投影已在同一事务中更新完毕。
+
+<a id="gloss-authz"></a>
+
+**AuthZ**  
+命令边界授权（`security.Authorizer` / `WithAuthorizer`）。拒绝返回 `ErrDenied`。与认证（AuthN）分离；不做事件签名（Q3）。
+
+<a id="gloss-meta"></a>
+
+**Meta（命令元数据）**  
+`command.Meta`：CommandID、TenantID、UserID、IdempotencyKey、Correlation/Causation、Source、AuthContext 等。`AuditOf` 可做审计快照。
+
+<a id="gloss-partition-key"></a>
+
+**partition_key**  
+聚合/流上的分区提示（常由 `tenancy.PartitionKey` 派生），用于共享 schema 内物理分区或唯一键作用域；与 `tenant_id` 配合，不是 schema-per-tenant。
+
+<a id="gloss-money"></a>
+
+**Money（decimal）**  
+`types.Money`：十进制金额 + 币种；JSON 金额为字符串。禁止 `float64`（Q2）。
+
+<a id="gloss-obs"></a>
+
+**obs / OpenTelemetry**  
+可选写路径观测钩子（延迟、成败、OCC、可选 outbox 深度）。**不是**业务审计源；应用自配 Provider。见 [§19](#19-opentelemetryobs)。
+
+---
+
+## 27. 锁定决策摘要（Q1–Q10）
 
 | # | 决策 |
 |---|------|
-| Q1 | 账本投影 **SyncInTxn** |
+| Q1 | [账本投影](#gloss-ledger-projection) **SyncInTxn** |
 | Q2 | Money = **decimal**（禁 float64） |
 | Q3 | 完整性 = **仅 DB**（无哈希链/签名） |
 | Q4 | 多租户 = **共享 schema + tenant_id** |
