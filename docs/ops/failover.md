@@ -10,8 +10,8 @@
 
 | Path | Recommendation |
 |------|----------------|
-| Command + SyncInTxn projectors (Q1) | Always hit the **primary** (read-your-write for balances). |
-| Async outbox consumers (Q6) | May read primary or lag-tolerant replica for non-ledger views. |
+| Command + SyncInTxn projectors | Always hit the **primary** (read-your-write for balances). |
+| Async outbox consumers | May read primary or lag-tolerant replica for non-ledger views. |
 | Replay / rebuild workers | Prefer primary or a dedicated rebuild role with consistent snapshot. |
 
 Use Patroni, Cloud SQL HA, RDS Multi-AZ, or equivalent. Put PgBouncer (or cloud pooler) in front for connection storms.
@@ -19,7 +19,7 @@ Use Patroni, Cloud SQL HA, RDS Multi-AZ, or equivalent. Put PgBouncer (or cloud 
 ## Failover checklist
 
 1. **Detect** primary loss (Patroni / cloud health / missing heartbeats).
-2. **Promote** a synchronous standby; confirm `pg_is_in_recovery() = false` on new primary.
+2. **Promote** a synchronous standby; confirm `pg_is_in_recovery = false` on new primary.
 3. **Repoint** pooler / DSN (or update service discovery). Rolling restart app pods if DSN is sticky.
 4. **Verify** writes: `go-sequent` append + one SyncInTxn projector update.
 5. **Verify** no dual writers: old primary must not accept writes (fencing / STONITH).

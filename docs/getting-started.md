@@ -15,13 +15,13 @@ Demo: open / deposit / withdraw / transfer, `tenant_id` unique keys, decimal Mon
 
 ```go
 demo, err := bank.NewDemoApp(bank.DemoOptions{
-    StoreFactory: func(reg *event.Registry) (eventstore.Store, eventstore.TxManager, eventstore.SnapshotStore, error) {
-        s := memory.New(reg)
-        return s, s, s, nil
-    },
-    Idempotency:     idempotency.NewMemory(),
-    Authorizer:      bank.AllowBankCommands(),
-    EnableTenancyMW: true,
+ StoreFactory: func(reg *event.Registry) (eventstore.Store, eventstore.TxManager, eventstore.SnapshotStore, error) {
+ s := memory.New(reg)
+ return s, s, s, nil
+ },
+ Idempotency: idempotency.NewMemory,
+ Authorizer: bank.AllowBankCommands,
+ EnableTenancyMW: true,
 })
 ctx := tenancy.WithTenant(ctx, tenantID)
 _ = demo.App.Service.Execute(ctx, &bank.OpenAccount{ /* … */ })
@@ -32,18 +32,18 @@ bal, _ := demo.Projector.Balance(accountID)
 
 | Path | When it runs |
 |------|----------------|
-| In-memory ITs (`TestIT_Memory_*`) | Always — included in `go test ./...` |
+| In-memory ITs (`TestIT_Memory_*`) | Always — included in `go test./...` |
 | Postgres ITs (`TestIT_Postgres_*`) | Only when `GO_SEQUENT_PG_DSN` is set; otherwise skipped |
 
 ```bash
 # Always-on (memory + unit tests; PG ITs skip without DSN)
-go test ./...
+go test./...
 
-go test ./examples/bank/ ./examples/bankpg/ -count=1
+go test./examples/bank/./examples/bankpg/ -count=1
 
 # SQL ledger + OCC + projection rebuild
 GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
-  go test ./examples/bankpg/ -count=1 -run TestIT_BankPG
+ go test./examples/bankpg/ -count=1 -run TestIT_BankPG
 ```
 
 Covered scenarios: command → events → SyncInTxn projection, idempotent retry, AuthZ deny, tenant unique owner, OCC (memory demo always; SQL balances in bankpg when DSN set).
@@ -65,14 +65,14 @@ GitHub Actions on `main`/`master` PRs and pushes: race tests, vet, golangci-lint
 1. Define **Events** and register factories on `event.Registry`.
 2. Embed `aggregate.Base`; mutate state **only** in appliers.
 3. Define **Commands** + `command.Handler`.
-4. Register **Projectors** on `SyncInTxn` (Q1 — ledger balances in the write txn).
+4. Register **Projectors** on `SyncInTxn` (ledger balances in the write txn).
 5. Call `CommandService.Execute(ctx, cmds...)`.
 
-## Tenancy (Q4)
+## Tenancy
 
 Shared schema + `tenant_id`. For multi-merchant payments (e.g. Circle), **Tenant = merchant**, not the C-end buyer — see [guide §17 Circle multi-merchant](./guide.md#business-example-circle-multi-merchant) ([glossary: Tenant](./guide.md#gloss-tenant)).
 
-## Money (Q2)
+## Money
 
 Use `types.Money` (decimal string JSON). **Never** `float64` for money.
 
@@ -84,13 +84,13 @@ _ = types.AssertNoFloatMoney(myCommand) // startup / test lint
 
 ## Phase 3 — finance-ready
 
-### Tenant-scoped idempotency (Q4)
+### Tenant-scoped idempotency
 
 ```go
-idemp := idempotency.NewMemory() // or idempotency.NewPostgres(pool)
+idemp := idempotency.NewMemory // or idempotency.NewPostgres(pool)
 app := sequent.New(cfg, sequent.WithIdempotency(idemp, false))
-cmd.Meta().TenantID = tenant
-cmd.Meta().IdempotencyKey = "client-key-1"
+cmd.Meta.TenantID = tenant
+cmd.Meta.IdempotencyKey = "client-key-1"
 ```
 
 Retries with the same `(tenant_id, key)` are no-ops after success.
@@ -99,7 +99,7 @@ Retries with the same `(tenant_id, key)` are no-ops after success.
 
 ```go
 app := sequent.New(cfg, sequent.WithAuthorizer(security.DenyByDefault{
-    Allow: map[string]bool{"bank.Deposit": true},
+ Allow: map[string]bool{"bank.Deposit": true},
 }))
 audit := command.AuditOf(cmd) // CommandID, TenantID, CorrelationID, Source, …
 ```
@@ -108,17 +108,17 @@ audit := command.AuditOf(cmd) // CommandID, TenantID, CorrelationID, Source, …
 
 ```go
 var protector crypto.PayloadProtector = crypto.Noop{}
-// Wire Protect/Unprotect around event JSON in your store path; GDPR = tombstone only (Q5).
+// Wire Protect/Unprotect around event JSON in your store path; GDPR = tombstone only.
 ```
 
 See `tombstone.Guide` and `tombstone.SubjectTombstoned`.
 
-### Outbox + Postgres polling (Q6)
+### Outbox + Postgres polling
 
 Ledger projectors stay **SyncInTxn**. For async fans:
 
 ```go
-ob := outbox.NewMemory() // or outbox.NewPostgres(pool)
+ob := outbox.NewMemory // or outbox.NewPostgres(pool)
 pub := &publish.WithOutbox{Inner: app.Publisher, Writer: ob, Topic: "events"}
 app.Repo.Publisher = pub
 ```
@@ -126,7 +126,7 @@ app.Repo.Publisher = pub
 Drain:
 
 ```bash
-go run ./cmd/go-sequent outbox -dsn "$GO_SEQUENT_PG_DSN" -once
+go run./cmd/go-sequent outbox -dsn "$GO_SEQUENT_PG_DSN" -once
 # or long-running: omit -once
 ```
 
@@ -139,7 +139,7 @@ Host app sets global Tracer/Meter providers (library uses globals; noop if unset
 ```go
 // App-side: otel.SetTracerProvider / SetMeterProvider + your exporter
 inst, _ := obs.New(obs.Config{OutboxDepth: ob.Depth}) // OutboxDepth optional
-app := sequent.New(cfg, sequent.WithObs(inst))         // sets Service.Obs — not middleware
+app := sequent.New(cfg, sequent.WithObs(inst)) // sets Service.Obs — not middleware
 ```
 
 ### Multi-tenant helpers
@@ -147,17 +147,17 @@ app := sequent.New(cfg, sequent.WithObs(inst))         // sets Service.Obs — n
 ```go
 tenancy.UniqueScope(tenantID, "email")
 tenancy.PartitionKeyHashed(tenantID, "shard-a")
-tenancy.MatchAggregateTenant(cmdTenant, agg.PartitionKey())
+tenancy.MatchAggregateTenant(cmdTenant, agg.PartitionKey)
 ```
 
-Event **hash chain** enabled; **no** signatures (Q3).
+Event **hash chain** enabled; **no** signatures.
 
 ## Ops CLI
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances -stage prepare -tables t1
-go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent replay -dsn "$DSN" -projector balances -stage prepare -tables t1
+go run./cmd/go-sequent outbox -dsn "$DSN" [-once]
 ```
 
 `store.Migrate` applies schemas through Phase 3 (`004_phase3.sql`).
@@ -167,21 +167,21 @@ go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
 | Resource | Path |
 |----------|------|
 | Ops runbooks (failover / rebuild / backup) | [ops/](./ops/) |
-| Partitioning guidance (shared schema, Q4) | [ops/partitioning.md](./ops/partitioning.md) |
+| Partitioning guidance (shared schema) | [ops/partitioning.md](./ops/partitioning.md) |
 | Threat model | [security/threat-model.md](./security/threat-model.md) |
-| Event evolution / upcasters (no Sequent import, Q9) | [security/event-evolution.md](./security/event-evolution.md) |
-| Benchmarks | [bench.md](./bench.md) — `go test ./bench/ -bench=. -benchmem` |
+| Event evolution / upcasters (no Sequent import) | [security/event-evolution.md](./security/event-evolution.md) |
+| Benchmarks | [bench.md](./bench.md) — `go test./bench/ -bench=. -benchmem` |
 
 ## Locked defaults
 
 | Topic | Choice |
 |-------|--------|
-| Projections | SyncInTxn for ledgers (Q1) |
-| Money | Decimal (Q2) |
-| Integrity | Hash chain — no signatures (Q3) |
-| Tenancy | Shared schema + `tenant_id` (Q4) |
-| GDPR | Tombstone only (Q5) |
-| Outbox | Postgres table polling (Q6) |
-| Shape | Pure library; ops CLI OK (Q7) |
+| Projections | SyncInTxn for ledgers |
+| Money | Decimal |
+| Integrity | Hash chain — no signatures |
+| Tenancy | Shared schema + `tenant_id` |
+| GDPR | Tombstone only |
+| Outbox | Postgres table polling |
+| Shape | Pure library; ops CLI OK |
 
 See [design.md](./design.md) §6–§10.

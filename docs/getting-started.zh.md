@@ -15,10 +15,10 @@
 
 ```go
 demo, err := bank.NewDemoApp(bank.DemoOptions{
-    StoreFactory: /* memory */,
-    Idempotency: idempotency.NewMemory(),
-    Authorizer: bank.AllowBankCommands(),
-    EnableTenancyMW: true,
+ StoreFactory: /* memory */,
+ Idempotency: idempotency.NewMemory,
+ Authorizer: bank.AllowBankCommands,
+ EnableTenancyMW: true,
 })
 ```
 
@@ -26,15 +26,15 @@ demo, err := bank.NewDemoApp(bank.DemoOptions{
 
 | 路径 | 何时运行 |
 |------|----------|
-| `examples/bank` 内存 ITs | 始终 — `go test ./...` |
+| `examples/bank` 内存 ITs | 始终 — `go test./...` |
 | `bank` / `bankpg` Postgres ITs | 设 `GO_SEQUENT_PG_DSN`；否则 skip |
 
 ```bash
-go test ./...
-go test ./examples/bank/ ./examples/bankpg/ -count=1
+go test./...
+go test./examples/bank/./examples/bankpg/ -count=1
 
 GO_SEQUENT_PG_DSN='postgres://user:pass@localhost:5432/go_sequent?sslmode=disable' \
-  go test ./examples/bankpg/ -count=1 -run TestIT_BankPG
+ go test./examples/bankpg/ -count=1 -run TestIT_BankPG
 ```
 
 覆盖：命令 → 事件 → SyncInTxn 投影、幂等、AuthZ、租户唯一 owner、OCC；bankpg 另含 SQL 余额与投影回放。
@@ -49,11 +49,11 @@ go get github.com/go-sequent/go-sequent@latest
 
 `main`/`master` 的 push/PR 跑 race 测试、vet、golangci-lint、mod tidy，以及 Postgres 集成测。打 `v*` 标签会再跑完整 CI，并用 GoReleaser 发布 `cmd/go-sequent` 二进制。**CI 不需要 secrets。** 详见 [ci.zh.md](./ci.zh.md) · [ci.md](./ci.md)。
 
-## 租户（Q4）
+## 租户
 
 共享 schema + `tenant_id`。多商户支付（如 Circle）时 **Tenant = 商户**，不是 C 端买家——见 [指南 §17 业务示例：Circle 多商户](./guide.zh.md#业务示例circle-多商户)（[名词：租户](./guide.zh.md#gloss-tenant)）。
 
-## 金额（Q2）
+## 金额
 
 使用 `types.Money`（decimal 字符串 JSON）。**禁止** `float64`。可用 `types.AssertNoFloatMoney` / `testkit.BanFloat64Money`。
 
@@ -61,12 +61,12 @@ go get github.com/go-sequent/go-sequent@latest
 
 | 能力 | 用法 |
 |------|------|
-| **租户幂等键**（Q4） | `sequent.WithIdempotency(store, strict)` |
+| **租户幂等键** | `sequent.WithIdempotency(store, strict)` |
 | **AuthZ + 审计** | `WithAuthorizer`；`command.AuditOf(cmd)` |
-| **加密钩子 / 墓碑** | `crypto.PayloadProtector`；GDPR = **仅墓碑**（Q5） |
-| **Outbox 轮询**（Q6） | `publish.WithOutbox` + CLI `outbox`；账本仍 SyncInTxn |
+| **加密钩子 / 墓碑** | `crypto.PayloadProtector`；GDPR = **仅墓碑** |
+| **Outbox 轮询** | `publish.WithOutbox` + CLI `outbox`；账本仍 SyncInTxn |
 | **OpenTelemetry** | `obs.New` + `WithObs`（应用自配 Provider；详见 [指南 §19](./guide.zh.md#19-opentelemetryobs)） |
-| **完整性** | 哈希链；禁止事件签名（Q3） |
+| **完整性** | 哈希链；禁止事件签名 |
 
 ### OpenTelemetry 最小接线
 
@@ -76,7 +76,7 @@ go get github.com/go-sequent/go-sequent@latest
 
 ```go
 inst, _ := obs.New(obs.Config{OutboxDepth: ob.Depth}) // OutboxDepth 可选
-app := sequent.New(cfg, sequent.WithObs(inst))         // 写入 Service.Obs，非 middleware
+app := sequent.New(cfg, sequent.WithObs(inst)) // 写入 Service.Obs，非 middleware
 ```
 
 ## Phase 4 — 生产加固
@@ -84,18 +84,18 @@ app := sequent.New(cfg, sequent.WithObs(inst))         // 写入 Service.Obs，�
 | 资源 | 路径 |
 |------|------|
 | 运维手册 | [ops/](./ops/) |
-| 分区指引（Q4） | [ops/partitioning.zh.md](./ops/partitioning.zh.md) |
+| 分区指引 | [ops/partitioning.zh.md](./ops/partitioning.zh.md) |
 | 威胁模型 | [security/threat-model.zh.md](./security/threat-model.zh.md) |
-| 事件演进（永不导入 Sequent，Q9） | [security/event-evolution.zh.md](./security/event-evolution.zh.md) |
-| 基准测试 | [bench.md](./bench.md) — `go test ./bench/ -bench=. -benchmem` |
+| 事件演进（永不导入 Sequent） | [security/event-evolution.zh.md](./security/event-evolution.zh.md) |
+| 基准测试 | [bench.md](./bench.md) — `go test./bench/ -bench=. -benchmem` |
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent outbox -dsn "$DSN" -once
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent outbox -dsn "$DSN" -once
 ```
 
 ## 已锁定默认
 
-同步账本投影 · decimal · 哈希链完整性 · 共享 schema + `tenant_id` · 仅墓碑 · Outbox 表轮询 · 纯库 · 不公开（Q10）。
+同步账本投影 · decimal · 哈希链完整性 · 共享 schema + `tenant_id` · 仅墓碑 · Outbox 表轮询 · 纯库 · 不公开。
 
 详见 [design.zh.md](./design.zh.md) §6–§10。

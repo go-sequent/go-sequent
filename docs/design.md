@@ -1,9 +1,9 @@
 # go-sequent 设计文档 / Design Document
 
-**Status:** Design only (no framework implementation in this phase)  
-**Module path:** `github.com/go-sequent/go-sequent`  
-**Inspired by:** [Sequent](https://sequent.io/) ([zilverline/sequent](https://github.com/zilverline/sequent))  
-**Target:** Financial systems — performance, HA, security, auditability  
+**Status:** Design only (no framework implementation in this phase)
+**Module path:** `github.com/go-sequent/go-sequent`
+**Inspired by:** [Sequent](https://sequent.io/) ([zilverline/sequent](https://github.com/zilverline/sequent))
+**Target:** Financial systems — performance, HA, security, auditability
 **Companion research:** [`docs/sequent-research.md`](./sequent-research.md) · 中文版：[`docs/design.zh.md`](./design.zh.md)、[`docs/sequent-research.zh.md`](./sequent-research.zh.md)
 
 ---
@@ -40,20 +40,20 @@
 
 ### 1.2 Non-Goals（非目标）— v1 / near-term
 
-- Not a full application framework (no HTTP/gRPC server or stubs in-repo, no UI, no ORM for general CRUD) — **pure library** (Q7).
+- Not a full application framework (no HTTP/gRPC server or stubs in-repo, no UI, no ORM for general CRUD) — **pure library**.
 - Not a multi-database polyglot event store in MVP (PostgreSQL first; interface allows later backends).
-- Not automatic GDPR “right to be forgotten” productization beyond **tombstone-only** strategy hooks (Q5); no crypto-shredding productization.
+- Not automatic GDPR “right to be forgotten” productization beyond **tombstone-only** strategy hooks ; no crypto-shredding productization.
 - Not a distributed multi-master event store / CRDT merge engine.
-- Not embedding a full workflow engine (Temporal/Cadence); Workflows stay in-process + optional outbox/job hooks (outbox transport = Postgres polling when used — Q6).
-- **Never** import / migrate Ruby Sequent databases (Q9); conceptual inspiration only, not dump/wire compatibility.
-- Not open-source / not public for now (Q10); license remains private/unpublished.
+- Not embedding a full workflow engine (Temporal/Cadence); Workflows stay in-process + optional outbox/job hooks (outbox transport = Postgres polling when used).
+- **Never** import / migrate Ruby Sequent databases ; conceptual inspiration only, not dump/wire compatibility.
+- Not open-source / not public for now ; license remains private/unpublished.
 
 ### 1.3 Design Principles
 
 1. **Events are the source of truth**; projections are disposable.
 2. **Aggregates never read other aggregates’ state** during command handling (enforce by API culture + lint guidance).
 3. **Default = single DB transaction** for command + events + sync projectors (Sequent parity); async modes are explicit opt-in.
-4. **Finance defaults on**: **decimal** money type (not integer minor units — Q2), idempotency keys, audit metadata on every command.
+4. **Finance defaults on**: **decimal** money type (not integer minor units), idempotency keys, audit metadata on every command.
 5. **Boring Go**: interfaces, constructors, `context.Context`, no global mutable singleton required (config via DI).
 
 ---
@@ -62,9 +62,9 @@
 
 | Sequent (Ruby) | go-sequent (Go idiom) |
 |----------------|------------------------|
-| `Sequent::Command` + `attrs` + ActiveModel validations | `Command` interface + struct tags / `Validate() error` / optional `go-playground/validator` |
+| `Sequent::Command` + `attrs` + ActiveModel validations | `Command` interface + struct tags / `Validate error` / optional `go-playground/validator` |
 | `Sequent::Event` + `attrs` | `Event` interface; concrete structs registered by type name |
-| `Sequent::ValueObject` | Immutable value structs; optional `Validate()` |
+| `Sequent::ValueObject` | Immutable value structs; optional `Validate` |
 | `Sequent::AggregateRoot` + `on Event do` | Embed `aggregate.Root`; register appliers `On(Type, func)` or generated switch; domain methods call `Apply` |
 | `CommandHandler` + `on Command do` | `CommandHandler` interface; router by `reflect.Type` or string type registry |
 | `CommandService` + Thread-local queue | `command.Service` with **context-scoped** command queue + UoW |
@@ -92,19 +92,19 @@ Ruby Sequent uses **per-thread** UoW. Go must use **per-request / per-command-ba
 
 ```text
 type Command interface {
-    CommandType() string      // stable name, e.g. "account.OpenAccount"
-    AggregateID() (uuid.UUID, bool) // optional primary aggregate
-    Meta() CommandMeta        // user, tenant, idempotency, trace
+ CommandType string // stable name, e.g. "account.OpenAccount"
+ AggregateID (uuid.UUID, bool) // optional primary aggregate
+ Meta CommandMeta // user, tenant, idempotency, trace
 }
 ```
 
 **CommandMeta (finance-oriented):**
 
-- `CommandID` (uuid) — unique id for storage / idempotency correlation  
-- `IdempotencyKey` (string, optional) — client-supplied  
-- `UserID`, `TenantID`  
-- `CausedByEvent` — `(aggregate_id, sequence_number)` when workflow-triggered  
-- `IssuedAt`  
+- `CommandID` (uuid) — unique id for storage / idempotency correlation
+- `IdempotencyKey` (string, optional) — client-supplied
+- `UserID`, `TenantID`
+- `CausedByEvent` — `(aggregate_id, sequence_number)` when workflow-triggered
+- `IssuedAt`
 - `AuthContext` opaque token / claims ref (not necessarily persisted)
 
 Commands are **intent**, validated before handlers run. Successful commands persist like Sequent’s `commands` table.
@@ -113,10 +113,10 @@ Commands are **intent**, validated before handlers run. Successful commands pers
 
 ```text
 type Event interface {
-    EventType() string
-    AggregateID() uuid.UUID
-    SequenceNumber() int64
-    CreatedAt() time.Time
+ EventType string
+ AggregateID uuid.UUID
+ SequenceNumber int64
+ CreatedAt time.Time
 }
 ```
 
@@ -128,15 +128,15 @@ Payload structs hold domain fields. Envelope metadata (type, ids, seq, created_a
 
 ```text
 type AggregateRoot interface {
-    ID() uuid.UUID
-    AggregateType() string
-    UncommittedEvents() []Event
-    ClearUncommitted()
-    Version() int64              // last committed sequence
-    Apply(Event)                 // only via Apply helper internally
-    Invariants() error           // Sequent invariants!
-    UniqueKeys() map[string]any  // optional
-    PartitionKey() string        // optional multi-tenant / shard key
+ ID uuid.UUID
+ AggregateType string
+ UncommittedEvents []Event
+ ClearUncommitted
+ Version int64 // last committed sequence
+ Apply(Event) // only via Apply helper internally
+ Invariants error // Sequent invariants!
+ UniqueKeys map[string]any // optional
+ PartitionKey string // optional multi-tenant / shard key
 }
 ```
 
@@ -145,7 +145,7 @@ type AggregateRoot interface {
 1. Public methods: guard + decide → `Apply(newEvent)`.
 2. State changes **only** in event appliers (so replay == live).
 3. No I/O inside aggregates.
-4. `Invariants()` checked after load and before commit.
+4. `Invariants` checked after load and before commit.
 
 **Implementation sketch:** embed `aggregate.Base` providing Apply, seq allocation, uncommitted buffer; user type registers appliers.
 
@@ -163,17 +163,17 @@ type AggregateRoot interface {
 
 ```text
 type Handler interface {
-    Handles() []string // command types
-    Handle(ctx context.Context, cmd Command) error
+ Handles []string // command types
+ Handle(ctx context.Context, cmd Command) error
 }
 
 type Service struct {
-    Middleware []Middleware
-    Filters    []Filter
-    Router     *Router
-    Repo       *repository.Repository
-    Store      eventstore.Store
-    Tx         TxManager
+ Middleware []Middleware
+ Filters []Filter
+ Router *Router
+ Repo *repository.Repository
+ Store eventstore.Store
+ Tx TxManager
 }
 ```
 
@@ -189,11 +189,11 @@ type Service struct {
 
 Interface responsibilities:
 
-- `Append(ctx, cmd, streamsWithEvents)` — atomic with optimistic concurrency + unique keys  
-- `LoadStream(ctx, id)` / `LoadStreams` — from latest compatible snapshot  
-- `StreamEvents(ctx, id, opts)` — cursor batches  
-- `RegisterTypes`  
-- `Snapshot` APIs  
+- `Append(ctx, cmd, streamsWithEvents)` — atomic with optimistic concurrency + unique keys
+- `LoadStream(ctx, id)` / `LoadStreams` — from latest compatible snapshot
+- `StreamEvents(ctx, id, opts)` — cursor batches
+- `RegisterTypes`
+- `Snapshot` APIs
 
 PostgreSQL implementation should mirror Sequent’s `store_events` procedure semantics (see §5).
 
@@ -217,7 +217,7 @@ PostgreSQL implementation should mirror Sequent’s `store_events` procedure sem
 
 - Default: JSON (aligned with Sequent `event_json` / `command_json`).
 - Pluggable `Codec` per type; upcasters for payload evolution.
-- Snapshot format = **JSON** (Q8), versioned independently (`snapshot_version`).
+- Snapshot format = **JSON**, versioned independently (`snapshot_version`).
 
 ### 3.9 Migrations
 
@@ -235,44 +235,44 @@ github.com/go-sequent/go-sequent
 ├── go.mod
 ├── README.md
 ├── docs/
-│   ├── design.md                 # this document
-│   └── sequent-research.md
+│ ├── design.md # this document
+│ └── sequent-research.md
 ├── cmd/
-│   └── go-sequent/               # CLI: migrate, replay, snapshot
-├── sequent/                      # façade: NewApp, Config
+│ └── go-sequent/ # CLI: migrate, replay, snapshot
+├── sequent/ # façade: NewApp, Config
 ├── command/
-│   ├── command.go                # Command, Meta, validation
-│   ├── service.go
-│   ├── middleware.go
-│   └── router.go
+│ ├── command.go # Command, Meta, validation
+│ ├── service.go
+│ ├── middleware.go
+│ └── router.go
 ├── event/
-│   ├── event.go
-│   └── registry.go               # type name ↔ factory
+│ ├── event.go
+│ └── registry.go # type name ↔ factory
 ├── aggregate/
-│   ├── root.go                   # Base + Apply
-│   └── repository.go
+│ ├── root.go # Base + Apply
+│ └── repository.go
 ├── eventstore/
-│   ├── store.go                  # interface
-│   ├── errors.go                 # OptimisticConcurrency, UniqueKey
-│   └── postgres/
-│       ├── store.go
-│       ├── schema/               # SQL + procedures
-│       └── snapshot.go
+│ ├── store.go # interface
+│ ├── errors.go # OptimisticConcurrency, UniqueKey
+│ └── postgres/
+│ ├── store.go
+│ ├── schema/ # SQL + procedures
+│ └── snapshot.go
 ├── projector/
-│   ├── projector.go
-│   ├── persistor.go
-│   └── replay/
+│ ├── projector.go
+│ ├── persistor.go
+│ └── replay/
 ├── workflow/
-│   └── workflow.go
+│ └── workflow.go
 ├── publish/
-│   ├── publisher.go              # sync in-txn publisher
-│   └── outbox/                   # optional async; Postgres polling when used
-├── types/                        # Money (decimal), Secret hooks
-├── security/                     # Authz interfaces (no event signing — Q3; hash chain in eventstore)
-├── tenancy/                      # shared schema + tenant_id helpers
-├── obs/                          # OpenTelemetry helpers
+│ ├── publisher.go # sync in-txn publisher
+│ └── outbox/ # optional async; Postgres polling when used
+├── types/ # Money (decimal), Secret hooks
+├── security/ # Authz interfaces (no event signing ; hash chain in eventstore)
+├── tenancy/ # shared schema + tenant_id helpers
+├── obs/ # OpenTelemetry helpers
 ├── migrate/
-└── testkit/                      # Given/When/Expect helpers
+└── testkit/ # Given/When/Expect helpers
 ```
 
 **Dependency direction:** `command` → `aggregate` → `eventstore`; `projector`/`workflow` ← `publish`; apps import `sequent` façade + their domain packages. Domain code should **not** import `eventstore/postgres`.
@@ -294,16 +294,16 @@ Core tables (PostgreSQL):
 | `aggregate_unique_keys` | Business uniqueness |
 | `snapshot_records` / `aggregates_that_need_snapshots` | Snapshots |
 | `idempotency_keys` (**new**) | `(tenant_id, key)` → `command_id` / result status |
-| `outbox` (**optional**) | Transactional outbox for async publish; drained by **Postgres polling** (Q6) |
+| `outbox` (**optional**) | Transactional outbox for async publish; drained by **Postgres polling** |
 | `audit_access_log` (**optional**) | Who read sensitive aggregates (compliance) |
 
 **Suggested finance columns on `commands` / event envelope:**
 
-- `tenant_id uuid` (shared-schema multi-tenancy — Q4)
+- `tenant_id uuid` (shared-schema multi-tenancy)
 - `idempotency_key text` (nullable; unique with tenant)
 - `correlation_id` / `causation_id`
 
-Events carry `prev_hash` / `event_hash` (SHA-256 hash chain, Q3). **No** signature columns.
+Events carry `prev_hash` / `event_hash` (SHA-256 hash chain). **No** signature columns.
 
 ### 5.2 Optimistic concurrency
 
@@ -328,19 +328,19 @@ Map DB integrity failures → `ErrOptimisticConcurrency` / `ErrUniqueKeyViolatio
 
 Mirror Sequent 8:
 
-1. **prepare** — create `replay_schema`, copy managed table DDLs (indexes optional).  
-2. **replay** — parallel workers by aggregate id ranges / event batches; bulk insert.  
-3. **catchup** — incremental while live system continues.  
-4. **optimize** — indexes, `VACUUM`/`ANALYZE` as applicable.  
-5. **golive** — brief lock / swap tables into `view_schema`; archive old.  
+1. **prepare** — create `replay_schema`, copy managed table DDLs (indexes optional).
+2. **replay** — parallel workers by aggregate id ranges / event batches; bulk insert.
+3. **catchup** — incremental while live system continues.
+4. **optimize** — indexes, `VACUUM`/`ANALYZE` as applicable.
+5. **golive** — brief lock / swap tables into `view_schema`; archive old.
 6. **abort** — drop replay schema.
 
 **Consistency modes:**
 
 | Mode | Behavior | Use |
 |------|----------|-----|
-| `SyncInTxn` (default, **Q1 locked**) | Projectors update in write txn | Strong consistency; **required for ledger balances** |
-| `OutboxAsync` | Write events + outbox row; workers project via Postgres polling (Q6) | Non-ledger / external integration paths |
+| `SyncInTxn` (default, ** locked**) | Projectors update in write txn | Strong consistency; **required for ledger balances** |
+| `OutboxAsync` | Write events + outbox row; workers project via Postgres polling | Non-ledger / external integration paths |
 | `Hybrid` | Critical projectors sync; others async | Ledgers sync; search/notifications async |
 
 ### 5.5 Partitioning & HA notes
@@ -359,7 +359,7 @@ Mirror Sequent 8:
 - No update/delete API on events in normal operation.
 - Compensating events for business corrections (`PaymentReversed`), not silent edits.
 - Command + event linkage for forensic replay.
-- Event integrity = **hash chain** (per-aggregate SHA-256) so tampering is detectable; **no** event signatures (Q3, revised 2026-10-26 Asia/Shanghai). DB ACLs/backups remain complementary.
+- Event integrity = **hash chain** (per-aggregate SHA-256) so tampering is detectable; **no** event signatures. DB ACLs/backups remain complementary.
 
 ### 6.2 Idempotency
 
@@ -371,7 +371,7 @@ Mirror Sequent 8:
 ### 6.3 Money / decimal boundaries
 
 - **Framework does not invent accounting rules.**
-- Provide `types.Money` using **decimal** amounts (Q2) — e.g. `shopspring/decimal` / `cockroachdb/apd` — with currency code + fixed scale policy.
+- Provide `types.Money` using **decimal** amounts — e.g. `shopspring/decimal` / `cockroachdb/apd` — with currency code + fixed scale policy.
 - **Not** integer minor-units as the framework money representation.
 - JSON marshal rules documented for decimal.
 - **Forbid `float64` in Command/Event money payloads** via lint / testkit check.
@@ -382,11 +382,11 @@ Mirror Sequent 8:
 - Hooks: `PayloadProtector` interface — encrypt selected JSON fields before insert; decrypt on load.
 - Prefer envelope encryption (DEK/KEK) with KMS; key rotation strategy documented.
 - Application-level field encryption > relying only on disk encryption for PII in events.
-- GDPR / retention: **tombstone only** (Q5) — apply tombstone events and scrub/stop processing identifiable data; **not** crypto-shredding as the product strategy; physical delete only as exceptional ops with stream-repair tooling.
+- GDPR / retention: **tombstone only** — apply tombstone events and scrub/stop processing identifiable data; **not** crypto-shredding as the product strategy; physical delete only as exceptional ops with stream-repair tooling.
 
 ### 6.5 Multi-tenancy hooks
 
-- Model = **shared schema + `tenant_id`** (Q4).
+- Model = **shared schema + `tenant_id`**.
 - `TenantID` on command meta; `partition_key` may still use tenant (or tenant+hash) for physical partitioning within the shared schema.
 - Repository/store filters enforce tenant match on load (defense in depth).
 - Unique key scopes should include tenant (`scope = "tenant:{id}:email"`).
@@ -394,7 +394,7 @@ Mirror Sequent 8:
 
 ### 6.6 Observability & SLA / HA
 
-**Role of OTel in-framework:** vendor-neutral hooks (`obs` + `sequent.WithObs`) so operators can see write-path health without choosing an APM inside the library. Complementary to EventStore / command audit — **not** a business audit trail (Q3 integrity is hash chain; Q7 keeps exporters in the host app). See [guide §19 Role and purpose](./guide.md#role-and-purpose).
+**Role of OTel in-framework:** vendor-neutral hooks (`obs` + `sequent.WithObs`) so operators can see write-path health without choosing an APM inside the library. Complementary to EventStore / command audit — **not** a business audit trail (integrity is hash chain; keeps exporters in the host app). See [guide §19 Role and purpose](./guide.md#role-and-purpose).
 
 **Implemented today (`obs`):** `sequent.Execute` span; metrics `sequent.command.duration_ms`, `sequent.command.total`, `sequent.optimistic_conflict.total`; optional `sequent.outbox.depth`. `RecordEvents` API exists but is not auto-hooked on append.
 
@@ -435,11 +435,11 @@ Mirror Sequent 8:
 
 Use when:
 
-- Projector I/O too heavy for write SLO, or  
-- External systems must see events after commit, or  
+- Projector I/O too heavy for write SLO, or
+- External systems must see events after commit, or
 - Cross-service integration.
 
-Pattern: insert `outbox` row in same txn as events; publisher workers deliver with at-least-once via **Postgres table polling** (Q6) — not LISTEN/NOTIFY or Kafka as the framework default; consumers idempotent. Ledger / balance projectors stay on **`SyncInTxn`** (Q1) so read-your-write holds for balances.
+Pattern: insert `outbox` row in same txn as events; publisher workers deliver with at-least-once via **Postgres table polling** — not LISTEN/NOTIFY or Kafka as the framework default; consumers idempotent. Ledger / balance projectors stay on **`SyncInTxn`** so read-your-write holds for balances.
 
 ### 7.4 Performance levers
 
@@ -457,7 +457,7 @@ Pattern: insert `outbox` row in same txn as events; publisher workers deliver wi
 
 ```text
 type Authorizer interface {
-    Authorize(ctx context.Context, cmd Command) error
+ Authorize(ctx context.Context, cmd Command) error
 }
 ```
 
@@ -468,7 +468,7 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 ### 8.2 Event integrity (hash chain; no signing)
 
 - **In scope:** per-aggregate hash chain (`prev_hash`/`event_hash`, SHA-256).
-- **Out of scope:** event signatures (Q3).
+- **Out of scope:** event signatures.
 - **Canonical bytes** (UTF-8 lines joined by `\n`, no trailing newline after the last line): `event_type`, `aggregate_id`, `sequence_number`, `created_at` (UTC truncated to µs, then RFC3339Nano), `event_json` (**BYTEA** exact payload bytes — not JSONB), `prev_hash` hex (64 lowercase). Seq 1 uses genesis (32 zero bytes). See `eventstore/hashchain`. Migrations: `005_hash_chain.sql`, `006_event_json_bytea.sql`.
 - Rely on PostgreSQL access control, backups, and optional WORM / immutable storage at the ops layer as complementary controls.
 - Apps may still encrypt PII fields via `PayloadProtector` without implying event authenticity signatures.
@@ -498,20 +498,20 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 ### Phase 0 — Foundations (design locked)
 
 - This document + research notes.
-- Q1–Q10 resolved by wei on **2026-10-26** (Asia/Shanghai) — see §10.
+ resolved by wei on **2026-10-26** (Asia/Shanghai) — see §10.
 
 ### Phase 1 — MVP (pure library; sample bank/ledger demo app stays outside this repo)
 
 - `Command` / `Event` / `Aggregate` base + registry.
 - `CommandService` + middleware + in-memory or Postgres EventStore **minimal** (events + commands + optimistic concurrency).
-- **Sync** in-process publisher + one sample Projector (ledger balances sync — Q1).
-- `types.Money` as **decimal** (Q2).
+- **Sync** in-process publisher + one sample Projector (ledger balances sync).
+- `types.Money` as **decimal**.
 - `testkit` Given/When/Expect.
-- Docs: getting started. No gRPC/HTTP stubs in-repo (Q7).
+- Docs: getting started. No gRPC/HTTP stubs in-repo.
 
 ### Phase 2 — Sequent-parity core
 
-- **JSON** snapshots + background snapshotter (Q8).
+- **JSON** snapshots + background snapshotter.
 - Unique keys.
 - Workflows + AfterCommit.
 - PostgreSQL procedures parity (`store_events`).
@@ -520,14 +520,14 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 
 ### Phase 3 — Finance-ready
 
-- Idempotency keys (tenant-scoped; shared schema + `tenant_id` — Q4).
+- Idempotency keys (tenant-scoped; shared schema + `tenant_id`).
 - AuthZ hooks + audit metadata standards.
 - Money/decimal lint + `types.Money`.
-- Payload encryption hooks; **tombstone-only** GDPR guide (Q5) — no crypto-shredding product path.
-- Optional outbox publisher mode with **Postgres polling** (Q6); ledger projectors remain sync.
+- Payload encryption hooks; **tombstone-only** GDPR guide — no crypto-shredding product path.
+- Optional outbox publisher mode with **Postgres polling** ; ledger projectors remain sync.
 - OpenTelemetry metrics/traces.
 - Multi-tenancy helpers for shared schema + `tenant_id`.
-- Hash chain on append/load; **no** event signatures (Q3).
+- Hash chain on append/load; **no** event signatures.
 
 ### Phase 4 — Production hardening
 
@@ -535,8 +535,8 @@ Aggregate-level checks (e.g. account ownership) stay in domain guards using only
 - Operational runbooks (failover, rebuild, backup restore).
 - Schema partitioning guidance at scale (within shared schema).
 - Security review / threat model refresh.
-- Compatibility policy for event evolution (still **no** Ruby Sequent DB import — Q9).
-- Keep project private / unpublished (Q10).
+- Compatibility policy for event evolution (still **no** Ruby Sequent DB import).
+- Keep project private / unpublished.
 
 ---
 
@@ -550,14 +550,14 @@ Confirmed by wei on **2026-10-26** (Asia/Shanghai). No new open questions in thi
 |----|----------|
 | D1 | Module path = `github.com/go-sequent/go-sequent` (supersedes `github.com/wenweih/go-sequent`, 2026-10-26 Asia/Shanghai). |
 | D2 | PostgreSQL is the first (and MVP-only) EventStore backend. |
-| D3 | Default publish mode = **sync projectors in the write transaction** (Sequent parity; affirms Q1). |
+| D3 | Default publish mode = **sync projectors in the write transaction** (Sequent parity). |
 | D4 | UoW is **context-scoped**, not process-global. |
 | D5 | JSON is the default codec for commands/events. |
 | D6 | Compensating events over mutable history for business corrections. |
-| D7 | `float64` banned in money fields; money type = **decimal** (not minor-units; affirms Q2). |
+| D7 | `float64` banned in money fields; money type = **decimal** (not minor-units). |
 | D8 | Explicit handler registration (no mandatory reflection autoregister magic). |
 | D9 | Design docs precede implementation; framework code not started in the design phase. |
-| D10 | Conceptual Sequent inspiration only — **never** Ruby Sequent DB import (affirms Q9). |
+| D10 | Conceptual Sequent inspiration only — **never** Ruby Sequent DB import. |
 | D11 | **Q1** Ledger / balance projections = **sync** (`SyncInTxn`). |
 | D12 | **Q2** Money representation = **decimal**. |
 | D13 | **Q3** Event integrity = **hash chain** (no event signatures). Supersedes DB-only. |
@@ -634,4 +634,4 @@ err := app.CommandService.Execute(ctx,
 
 ---
 
-*End of design document. Q1–Q10 locked 2026-10-26 (Asia/Shanghai). Implementation may proceed per the phased roadmap; this revision is documentation-only.*
+*End of design document. Locked decisions recorded 2026-10-26 (Asia/Shanghai). Implementation may proceed per the phased roadmap; this revision is documentation-only.*

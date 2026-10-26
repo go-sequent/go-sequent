@@ -1,6 +1,6 @@
 # Schema partitioning guidance (shared schema + tenant_id)
 
-**Model (Q4):** one shared schema with `tenant_id` columns/hooks — **not** schema-per-tenant or DB-per-tenant.
+**Model :** one shared schema with `tenant_id` columns/hooks — **not** schema-per-tenant or DB-per-tenant.
 
 Physical partitioning is optional and should stay **within** that shared schema. Phase 1–3 migrations remain non-partitioned by default; the SQL under [`sql/`](./sql/) is **guidance only** (apply deliberately in ops, after capacity review).
 
@@ -12,7 +12,7 @@ Physical partitioning is optional and should stay **within** that shared schema.
 | Very large `commands` | Range partition by time or hash by `id` |
 | Cross-tenant scans rare | Prefer prune-friendly keys matching load filters |
 
-go-sequent already stores `events.partition_key` and `aggregates.events_partition_key`. Application code should set `PartitionKey()` from `tenancy.PartitionKey` / `PartitionKeyHashed`.
+go-sequent already stores `events.partition_key` and `aggregates.events_partition_key`. Application code should set `PartitionKey` from `tenancy.PartitionKey` / `PartitionKeyHashed`.
 
 ## Recommended approach
 

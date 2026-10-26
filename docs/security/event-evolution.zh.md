@@ -4,7 +4,7 @@
 
 1. 事件是不可变事实；优先新类型或 upcaster，而非改写历史。
 2. 默认 JSON 编解码；信封在库列，载荷保持扁平。
-3. **永不导入 Ruby Sequent 数据库**（Q9）。
+3. **永不导入 Ruby Sequent 数据库**。
 
 ## Upcaster v0 规则
 
@@ -21,6 +21,6 @@
 | 语义破坏 | 新事件类型 + 补偿事件 |
 | 快照不兼容 | 提升 `SnapshotVersion`，丢弃旧快照 |
 
-金额保持 decimal 字符串（Q2）；禁止 float64。禁止静默改事件行；哈希链可发现篡改；禁止事件签名（Q3）；禁止 crypto-shredding 产品化（Q5）；禁止 Sequent dump 导入（Q9）。
+金额保持 decimal 字符串；禁止 float64。禁止静默改事件行；哈希链可发现篡改；禁止事件签名；禁止 crypto-shredding 产品化；禁止 Sequent dump 导入。
 
 详见英文版 [event-evolution.md](./event-evolution.md) 与运维 [projection-rebuild.zh.md](../ops/projection-rebuild.zh.md)。

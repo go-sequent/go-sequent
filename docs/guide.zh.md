@@ -1,10 +1,10 @@
 # go-sequent 框架指南
 
-> 说明 **已实现** 的 Phase 1–4 与 `examples/bank` 示例。概念命名参考 [Sequent](https://sequent.io/) Reference Guide，但 API 与数据模型均为 Go 独立实现（**永不**导入 Ruby Sequent 数据库，Q9）。
+> 说明 **已实现** 的 Phase 1–4 与 `examples/bank` 示例。概念命名参考 [Sequent](https://sequent.io/) Reference Guide，但 API 与数据模型均为 Go 独立实现（**永不**导入 Ruby Sequent 数据库）。
 >
 > **术语约定：** 框架 / API 名称以英文为准（如 Command、EventStore、SyncInTxn）；中文多为释义。完整对照见 [§26 名词释义](#26-名词释义)。
 
-模块：`github.com/go-sequent/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC，Q7）
+模块：`github.com/go-sequent/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC）
 
 ---
 
@@ -46,7 +46,7 @@
 
 - 每次 `Execute`：一个数据库事务，加上挂在 `context` 上的 [UnitOfWork](#gloss-uow)（UoW）
 - 追加事件时的 [乐观并发（OCC）](#gloss-occ) 与 [唯一键](#gloss-unique-keys)
-- [账本投影](#gloss-ledger-projection)默认在写事务内同步更新（[`SyncInTxn`](#gloss-syncintxn)，Q1）
+- [账本投影](#gloss-ledger-projection)默认在写事务内同步更新（[`SyncInTxn`](#gloss-syncintxn)）
 - decimal [Money](#gloss-money)、租户幂等、AuthZ、JSON Snapshot、墓碑式 GDPR 钩子，以及可选 Outbox 轮询
 - 可选 [OpenTelemetry](#gloss-obs)（包名 `obs`）：观察写路径延迟、成败与冲突——**不能**当作业务审计源（见 [§19 作用](#作用)）
 
@@ -66,25 +66,25 @@
 
 ```text
 客户端 / 服务入口
-        │
-        ▼
-  CommandService.Execute(ctx, cmds...)
-        │  开启 Tx + UnitOfWork
-        ├─ Middleware（tenancy / idempotency …）
-        ├─ Filters（AuthZ）
-        ├─ Command.Validate（可选）
-        ▼
-  CommandHandler
-        │  Repo.Add / Repo.Load → 聚合方法 Apply 事件
-        ▼
-  Repository.Commit
-        │  EventStore.Append（command_records + events + unique keys）
-        │  Publisher.Publish → Projectors → Workflows
-        ▼
-  Tx commit
-        │
-        ▼
-  AfterCommit hooks（通知、出站非账本副作用）
+ │
+ ▼
+ CommandService.Execute(ctx, cmds...)
+ │ 开启 Tx + UnitOfWork
+ ├─ Middleware（tenancy / idempotency …）
+ ├─ Filters（AuthZ）
+ ├─ Command.Validate（可选）
+ ▼
+ CommandHandler
+ │ Repo.Add / Repo.Load → 聚合方法 Apply 事件
+ ▼
+ Repository.Commit
+ │ EventStore.Append（command_records + events + unique keys）
+ │ Publisher.Publish → Projectors → Workflows
+ ▼
+ Tx commit
+ │
+ ▼
+ AfterCommit hooks（通知、出站非账本副作用）
 ```
 
 你通常要实现：**Command、Handler、Aggregate、Event、Projector**（可选 Workflow）。其余由 `command.Service`、`aggregate.Repository`、`eventstore`、`publish.SyncInTxn` 串起来。
@@ -97,13 +97,13 @@
 
 ```go
 type Command interface {
-    CommandType() string
-    AggregateID() (uuid.UUID, bool) // 可选主聚合
-    Meta() *Meta
+ CommandType string
+ AggregateID (uuid.UUID, bool) // 可选主聚合
+ Meta *Meta
 }
 ```
 
-嵌入 `command.Base` 即可拿到 `Meta()`。`EnsureMeta` 会补齐 `CommandID`、`IssuedAt`、`CorrelationID`。
+嵌入 `command.Base` 即可拿到 `Meta`。`EnsureMeta` 会补齐 `CommandID`、`IssuedAt`、`CorrelationID`。
 
 | Meta 字段 | 用途 |
 |-----------|------|
@@ -114,19 +114,19 @@ type Command interface {
 | `Source` | 来源标签，如 `api`、`workflow` |
 | `AuthContext` | 不透明鉴权声明（**不要**只信客户端传来的 UserID） |
 
-`command.AuditOf(cmd)` 生成可落库的审计快照。实现 `Validate() error` 可在 Handler 之前自检。
+`command.AuditOf(cmd)` 生成可落库的审计快照。实现 `Validate error` 可在 Handler 之前自检。
 
 Bank 示例：
 
 ```go
 type OpenAccount struct {
-    command.Base
-    AccountID uuid.UUID
-    Owner     string
-    Currency  string
-    Opening   types.Money
+ command.Base
+ AccountID uuid.UUID
+ Owner string
+ Currency string
+ Opening types.Money
 }
-func (c *OpenAccount) CommandType() string { return "bank.OpenAccount" }
+func (c *OpenAccount) CommandType string { return "bank.OpenAccount" }
 ```
 
 ---
@@ -137,10 +137,10 @@ func (c *OpenAccount) CommandType() string { return "bank.OpenAccount" }
 
 ```go
 type Event interface {
-    EventType() string
-    AggregateID() uuid.UUID
-    SequenceNumber() int64
-    CreatedAt() time.Time
+ EventType string
+ AggregateID uuid.UUID
+ SequenceNumber int64
+ CreatedAt time.Time
 }
 ```
 
@@ -149,7 +149,7 @@ type Event interface {
 **Registry** 把稳定类型名映射到工厂，供 JSON 反序列化：
 
 ```go
-r.Register("bank.AccountOpened", func() event.Event { return &AccountOpened{} })
+r.Register("bank.AccountOpened", func event.Event { return &AccountOpened{} })
 ```
 
 Upcaster（包 `event/upcast`）可在加载时升级旧 payload，挂到 `sequent.App.Upcasters`。**不要**假设与 Ruby Sequent 的事件表兼容。
@@ -162,22 +162,22 @@ Upcaster（包 `event/upcast`）可在加载时升级旧 payload，挂到 `seque
 
 `aggregate.Root` 是聚合契约。业务聚合嵌入 `aggregate.Base`：
 
-1. 构造函数里 `Init(id, typeName)`，并用 `On(sampleEvent, applier)` 注册 **纯状态** 应用器  
-2. 命令方法先做规则校验，再 `Apply(event)`——**禁止**在 applier 里做 I/O  
-3. 可按需覆盖 `Invariants()`、`UniqueKeys()`、`PartitionKey`
+1. 构造函数里 `Init(id, typeName)`，并用 `On(sampleEvent, applier)` 注册 **纯状态** 应用器
+2. 命令方法先做规则校验，再 `Apply(event)`——**禁止**在 applier 里做 I/O
+3. 可按需覆盖 `Invariants`、`UniqueKeys`、`PartitionKey`
 
 ```go
 acc := NewAccount(id)
 acc.On(&AccountOpened{}, func(e event.Event) { /* 突变状态 */ })
 // …
 func (a *Account) Deposit(amount types.Money) error {
-    // 校验 …
-    a.Apply(NewMoneyDeposited(amount))
-    return nil
+ // 校验 …
+ a.Apply(NewMoneyDeposited(amount))
+ return nil
 }
 ```
 
-当前状态 = 历史事件（可加 JSON Snapshot）折叠的结果。未提交事件停在 `UncommittedEvents()`，由 Repository 在 Commit 时写出。
+当前状态 = 历史事件（可加 JSON Snapshot）折叠的结果。未提交事件停在 `UncommittedEvents`，由 Repository 在 Commit 时写出。
 
 ---
 
@@ -187,8 +187,8 @@ func (a *Account) Deposit(amount types.Money) error {
 
 ```go
 type Handler interface {
-    Handles() []string
-    Handle(ctx context.Context, cmd Command) error
+ Handles []string
+ Handle(ctx context.Context, cmd Command) error
 }
 ```
 
@@ -196,21 +196,21 @@ Handler 通过 `aggregate.Repository` 的 `Add` / `Load` 操作聚合，**不要
 
 ```go
 func (h *Handler) Handle(ctx context.Context, cmd command.Command) error {
-    switch c := cmd.(type) {
-    case *OpenAccount:
-        acc := NewAccount(c.AccountID)
-        if err := acc.OpenAccount(c.Owner, c.Currency, c.Opening); err != nil {
-            return err
-        }
-        return h.Repo.Add(ctx, acc)
-    case *Deposit:
-        agg, err := h.Repo.Load(ctx, c.AccountID, AggregateAccount)
-        // …
-    }
+ switch c := cmd.(type) {
+ case *OpenAccount:
+ acc := NewAccount(c.AccountID)
+ if err := acc.OpenAccount(c.Owner, c.Currency, c.Opening); err != nil {
+ return err
+ }
+ return h.Repo.Add(ctx, acc)
+ case *Deposit:
+ agg, err := h.Repo.Load(ctx, c.AccountID, AggregateAccount)
+ // …
+ }
 }
 ```
 
-`Router.Register(h)` 按 `CommandType()` 分发；同一类型重复注册会 panic。
+`Router.Register(h)` 按 `CommandType` 分发；同一类型重复注册会 panic。
 
 ---
 
@@ -236,7 +236,7 @@ func (h *Handler) Handle(ctx context.Context, cmd command.Command) error {
 包：`command`
 
 ```go
-svc.Execute(ctx, cmd1, cmd2, ...) // 单事务、单 UoW
+svc.Execute(ctx, cmd1, cmd2,...) // 单事务、单 UoW
 ```
 
 每次 `Execute` 大致步骤：
@@ -250,8 +250,8 @@ svc.Execute(ctx, cmd1, cmd2, ...) // 单事务、单 UoW
 
 Bank `NewDemoApp` 的常见顺序：
 
-1. `tenancy.Middleware`——从 ctx 写入 `Meta.TenantID`  
-2. `idempotency.Middleware`——依赖已有 TenantID  
+1. `tenancy.Middleware`——从 ctx 写入 `Meta.TenantID`
+2. `idempotency.Middleware`——依赖已有 TenantID
 
 **Filters**（如 `security.Filter`）在 terminal 内、`Validate` 之前执行。可选观测见 [§19 OpenTelemetry](#19-opentelemetryobs)：挂在 `Service.Obs` 上，**不是** Middleware。
 
@@ -263,9 +263,9 @@ Bank `NewDemoApp` 的常见顺序：
 
 ```go
 type Store interface {
-    Append(ctx context.Context, cmd CommandRecord, streams []StreamAppend) error
-    LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.Event, error)
-    LoadStreams(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]event.Event, error)
+ Append(ctx context.Context, cmd CommandRecord, streams []StreamAppend) error
+ LoadStream(ctx context.Context, aggregateID uuid.UUID) ([]event.Event, error)
+ LoadStreams(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]event.Event, error)
 }
 ```
 
@@ -279,12 +279,12 @@ type Store interface {
 | `ErrHashChainTamper` | 哈希链校验失败（篡改或链路断裂） |
 | `ErrHashChainIncomplete` | 缺少 `prev_hash` / `event_hash` |
 
-**memory**：单测与本地 IT。  
+**memory**：单测与本地 IT。
 **postgres**：`Open` + `Migrate`；schema `001`–`005`（含 `005_hash_chain.sql`）。同一实现还可当 `TxManager` 与 `SnapshotStore`。另提供 `VerifyChain(ctx, aggregateID)`。
 
 业务代码通常经 Repository 访问 Store，而不是直接 `Append`（测 OCC 时可以直写）。
 
-### 哈希链（Q3）
+### 哈希链
 
 按聚合流的 SHA-256 链：每行存 `prev_hash` + `event_hash`。序号 1 的 `prev_hash` 为 genesis（32 字节全 0）。规范输入为 UTF-8 行，以 `\n` 拼接（末行无尾换行）：
 
@@ -303,16 +303,16 @@ type Store interface {
 
 包：`publish`、`publish/outbox`
 
-### SyncInTxn（默认，Q1）
+### SyncInTxn（默认）
 
 写事务内按事件顺序调用：
 
-1. 已注册的 **Projector**  
+1. 已注册的 **Projector**
 2. 已注册的 **Workflow**
 
 任一失败 → 整笔事务回滚。重建投影时用 `PublishProjectorsOnly`，跳过 Workflow。
 
-### WithOutbox（Q6）
+### WithOutbox
 
 `publish.WithOutbox` 包一层 `SyncInTxn`：同步投影之后，把匹配事件写入事务性 Outbox 表；再由 `outbox.Poller` 或 CLI `go-sequent outbox` **轮询**投递（默认不是 LISTEN/NOTIFY，也不是 Kafka）。
 
@@ -326,8 +326,8 @@ type Store interface {
 
 ```go
 type Projector interface {
-    publish.Handler // Handles() + Handle(ctx, e)
-    ManagedTables() []string
+ publish.Handler // Handles + Handle(ctx, e)
+ ManagedTables []string
 }
 ```
 
@@ -335,9 +335,9 @@ Bank 的 `BalanceProjector` 在内存里维护余额（演示用）；生产应�
 
 约定（与 Sequent 精神一致）：
 
-- 一张投影表只由一个 Projector 管理  
-- 重建时只依赖自己管理的表  
-- 账本类投影失败必须让写事务失败  
+- 一张投影表只由一个 Projector 管理
+- 重建时只依赖自己管理的表
+- 账本类投影失败必须让写事务失败
 
 ---
 
@@ -351,8 +351,8 @@ Workflow 也实现 `publish.Handler`，但通过 `RegisterWorkflow` 注册，**�
 
 ```go
 workflow.RegisterAfterCommit(ctx, func(ctx context.Context) error {
-    // 邮件 / 指标 / 非账本副作用
-    return nil
+ // 邮件 / 指标 / 非账本副作用
+ return nil
 })
 ```
 
@@ -364,11 +364,11 @@ workflow.RegisterAfterCommit(ctx, func(ctx context.Context) error {
 
 包：`snapshot`。存储接口：`eventstore.SnapshotStore`（postgres / memory）。
 
-Q8：Snapshot 格式为 **JSON**。聚合实现：
+Snapshot 格式为 **JSON**。聚合实现：
 
 ```go
-SnapshotVersion() int
-MarshalSnapshot() (json.RawMessage, error)
+SnapshotVersion int
+MarshalSnapshot (json.RawMessage, error)
 UnmarshalSnapshot(json.RawMessage) error
 ```
 
@@ -378,8 +378,8 @@ UnmarshalSnapshot(json.RawMessage) error
 
 ## 14. Unique keys 与乐观并发
 
-- **乐观并发（OCC）：** `ExpectedVersion` 等于提交前已提交序号；冲突返回 `ErrOptimisticConcurrency`。  
-- **唯一键：** 聚合 `UniqueKeys()` 返回 `scope → value`。Bank 把 owner 限制在 `tenant:<pk>:bank.Account.owner`。冲突 → `ErrUniqueKeyViolation`。
+- **乐观并发（OCC）：** `ExpectedVersion` 等于提交前已提交序号；冲突返回 `ErrOptimisticConcurrency`。
+- **唯一键：** 聚合 `UniqueKeys` 返回 `scope → value`。Bank 把 owner 限制在 `tenant:<pk>:bank.Account.owner`。冲突 → `ErrUniqueKeyViolation`。
 
 `tenancy.UniqueScope` / `PartitionKey` 可帮助构造租户作用域。
 
@@ -389,10 +389,10 @@ UnmarshalSnapshot(json.RawMessage) error
 
 包：`idempotency`（幂等）
 
-- 键空间：`(TenantID, IdempotencyKey)`  
-- 成功后再提交同键：默认 **短路成功**（no-op）；`Strict=true` 时返回 `ErrReplay`  
-- 实现：`NewMemory()` / `NewPostgres(pool)`  
-- 安装：`sequent.WithIdempotency`，或手动挂 Middleware  
+- 键空间：`(TenantID, IdempotencyKey)`
+- 成功后再提交同键：默认 **短路成功**（no-op）；`Strict=true` 时返回 `ErrReplay`
+- 实现：`NewMemory` / `NewPostgres(pool)`
+- 安装：`sequent.WithIdempotency`，或手动挂 Middleware
 
 设置了 `IdempotencyKey` 时 **必须** 有 `TenantID`（可先跑 tenancy Middleware）。
 
@@ -404,20 +404,20 @@ UnmarshalSnapshot(json.RawMessage) error
 
 ```go
 type Authorizer interface {
-    Authorize(ctx context.Context, cmd command.Command) error
+ Authorize(ctx context.Context, cmd command.Command) error
 }
 ```
 
-内置：`AllowAll`、`DenyByDefault{Allow: map[string]bool{...}}`。  
+内置：`AllowAll`、`DenyByDefault{Allow: map[string]bool{...}}`。
 安装：`sequent.WithAuthorizer`（Filter）或 `security.Middleware`。拒绝时用 `errors.Is(err, security.ErrDenied)` 判断。
 
-**做** 哈希链；**不做** 事件签名（Q3）。
+**做** 哈希链；**不做** 事件签名。
 
 ---
 
 ## 17. Tenancy
 
-包：`tenancy`（[Q4](#27-锁定决策摘要q1q10)：**共享 schema + `tenant_id`**）
+包：`tenancy`（**共享 schema + `tenant_id`**）
 
 ```go
 ctx = tenancy.WithTenant(ctx, tenantID)
@@ -442,7 +442,7 @@ ctx = tenancy.WithTenant(ctx, tenantID)
 | Payment、Wallet、Settlement 等 | **[Aggregate](#gloss-aggregate)**（按流 OCC） |
 | 商户余额、对账、可提现额度 | **[账本投影](#gloss-ledger-projection)**，[SyncInTxn](#gloss-syncintxn)，SQL / 读模型按 `tenant_id` 过滤 |
 
-**不要**把每个 C 端用户做成 Tenant。C 端用户可以是事件载荷里的 `buyer_id`，或 `UserID`（当其本人发命令时）；隔离与计费边界始终是 **Merchant = Tenant**。这与锁定的 Q4（共享 schema + `tenant_id`）一致：一张事件表、一行带 `tenant_id`，而不是每商户一个 schema。
+**不要**把每个 C 端用户做成 Tenant。C 端用户可以是事件载荷里的 `buyer_id`，或 `UserID`（当其本人发命令时）；隔离与计费边界始终是 **Merchant = Tenant**。这与已锁定决策（共享 schema + `tenant_id`）一致：一张事件表、一行带 `tenant_id`，而不是每商户一个 schema。
 
 **应用侧映射表（示意）**
 
@@ -502,7 +502,7 @@ JSON 里金额是 **字符串**，禁止 `float64`。可用 `types.AssertNoFloat
 
 **不做什么：** 不替代业务审计；不自动埋点 HTTP/gRPC、Projector、Outbox poller；不捆绑 exporter；Provider 由应用配置。`RecordEvents` API 存在，但 **没有** 自动挂到 append（见下）。
 
-**与锁定决策：** 只是可观测性钩子。事件完整性是 **哈希链**（Q3）；交付形态仍是 **纯库**（Q7）——导出留给宿主进程。
+**说明：** 只是可观测性钩子。事件完整性是 **哈希链**；交付形态仍是 **纯库**——导出留给宿主进程。
 
 ### 接线
 
@@ -522,11 +522,11 @@ JSON 里金额是 **字符串**，禁止 `float64`。可用 `types.AssertNoFloat
 ```go
 // 应用侧：otel.SetTracerProvider / SetMeterProvider + 你的 exporter
 inst, err := obs.New(obs.Config{
-    OutboxDepth: ob.Depth, // 可选；nil 则不注册 sequent.outbox.depth
+ OutboxDepth: ob.Depth, // 可选；nil 则不注册 sequent.outbox.depth
 })
 app := sequent.New(sequent.Config{},
-    sequent.WithObs(inst),
-    sequent.WithStore(store, tx),
+ sequent.WithObs(inst),
+ sequent.WithStore(store, tx),
 )
 ```
 
@@ -561,14 +561,14 @@ Postgres schema 由 `store.Migrate` 应用：`001_phase1` … `004_phase3`（含
 CLI（`cmd/go-sequent`）：
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector name -stage prepare -tables t1
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent outbox -dsn "$DSN" [-once]
+go run./cmd/go-sequent replay -dsn "$DSN" -projector name -stage prepare -tables t1
 ```
 
 `replay` 的 schema 阶段（prepare / optimize / golive / abort）可用 CLI；完整事件回放需应用侧接入 `projector/replay.Pipeline` + EventSource。
 
-GDPR：`tombstone` 包提供 `SubjectTombstoned` 与策略说明（**仅墓碑**，Q5）。`crypto.PayloadProtector` 是可选字段加密钩子，**不是** crypto-shredding 产品路径。
+GDPR：`tombstone` 包提供 `SubjectTombstoned` 与策略说明（**仅墓碑**）。`crypto.PayloadProtector` 是可选字段加密钩子，**不是** crypto-shredding 产品路径。
 
 ---
 
@@ -578,14 +578,14 @@ GDPR：`tombstone` 包提供 `SubjectTombstoned` 与策略说明（**仅墓碑**
 
 ```go
 app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn},
-    sequent.WithStore(store, tx),
-    sequent.WithAuthorizer(security.DenyByDefault{Allow: map[string]bool{...}}),
-    sequent.WithIdempotency(idempotency.NewMemory(), false),
-    sequent.WithObs(inst),
+ sequent.WithStore(store, tx),
+ sequent.WithAuthorizer(security.DenyByDefault{Allow: map[string]bool{...}}),
+ sequent.WithIdempotency(idempotency.NewMemory, false),
+ sequent.WithObs(inst),
 )
 app.RegisterAggregate("bank.Account", func(id uuid.UUID) aggregate.Root { return bank.NewAccount(id) })
 app.RegisterHandler(&bank.Handler{Repo: app.Repo})
-app.RegisterProjector(bank.NewBalanceProjector())
+app.RegisterProjector(bank.NewBalanceProjector)
 app.RegisterWorkflow(&bank.NotifyWorkflow{})
 app.RegisterUpcaster(...)
 _ = app.Service.Execute(ctx, cmd)
@@ -605,8 +605,8 @@ Bank 演示封装：`bank.NewDemoApp(DemoOptions{StoreFactory, Idempotency, Auth
 演示包：`events` / `account` / `commands` / `handler` / 内存 `projector` / `workflow` / `NewDemoApp`。生产形态复用同一领域，见 `bankpg/README.zh.md`。
 
 ```bash
-go test ./examples/bank/ ./examples/bankpg/ -count=1
-GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
+go test./examples/bank/./examples/bankpg/ -count=1
+GO_SEQUENT_PG_DSN='postgres://…' go test./examples/bankpg/ -run TestIT_BankPG
 ```
 
 ---
@@ -622,10 +622,10 @@ GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 | Postgres | 设 `GO_SEQUENT_PG_DSN`；未设则 skip |
 
 ```bash
-go test ./...   # 无 DSN 必须绿
+go test./... # 无 DSN 必须绿
 ```
 
-基准：`go test ./bench/ -bench=. -benchmem`（见 [bench.md](./bench.md)）。
+基准：`go test./bench/ -bench=. -benchmem`（见 [bench.md](./bench.md)）。
 
 ---
 
@@ -650,10 +650,10 @@ go test ./...   # 无 DSN 必须绿
 | AggregateObserver | **未**单独产品化 |
 | ValueObject 一等类型系统 | 普通 Go 类型 + `types.Money` |
 | LISTEN/NOTIFY / 默认消息总线 | 可选 Outbox **表轮询** |
-| 事件哈希链 | **已实现**（Q3） |
-| 事件签名 | **明确不做**（Q3） |
-| 导入既有 Sequent DB | **禁止**（Q9） |
-| HTTP/gRPC stubs | **无**（Q7） |
+| 事件哈希链 | **已实现** |
+| 事件签名 | **明确不做** |
+| 导入既有 Sequent DB | **禁止** |
+| HTTP/gRPC stubs | **无** |
 
 阶段简述：Phase 1 核心闭环 → Phase 2 Snapshot / Upcaster / Workflow / replay 骨架 → Phase 3 幂等 / AuthZ / Outbox / tenancy / tombstone / obs → Phase 4 文档与基准 → Bank 示例与集成测试。
 
@@ -661,136 +661,136 @@ go test ./...   # 无 DSN 必须绿
 
 ## 26. 名词释义
 
-释义对齐 **当前 go-sequent 实现** 与锁定决策（Q1–Q10）。英文版见 [Glossary](./guide.md#26-glossary)。词条标题多为「中文（English）」或保留英文 API 名。
+释义对齐 **当前 go-sequent 实现** 与已锁定产品决策。英文版见 [Glossary](./guide.md#26-glossary)。词条标题多为「中文（English）」或保留英文 API 名。
 
 <a id="gloss-ledger-projection"></a>
 
-**账本投影（ledger projection）**  
-余额、台账一类金融读模型。Q1 要求在写事务内用 `SyncInTxn` 同步更新，提交成功后即可 [读己之写](#gloss-read-your-writes)，避免异步滞后造成余额不一致。Bank 的 `BalanceProjector` 属于此类（演示用内存；生产应落 SQL）。
+**账本投影（ledger projection）**
+余额、台账一类金融读模型。在写事务内用 `SyncInTxn` 同步更新，提交成功后即可 [读己之写](#gloss-read-your-writes)，避免异步滞后造成余额不一致。Bank 的 `BalanceProjector` 属于此类（演示用内存；生产应落 SQL）。
 
 <a id="gloss-projector"></a>
 
-**Projector（投影器）**  
+**Projector（投影器）**
 实现 `publish.Handler`（可选 `ManagedTables`）的读模型更新器。注册到 `SyncInTxn` 后，在 Append 之后、事务提交前按事件调用；失败则整笔写事务回滚。重建时用 `PublishProjectorsOnly`，跳过 Workflow。
 
 <a id="gloss-aggregate"></a>
 
-**AggregateRoot（聚合根）**  
+**AggregateRoot（聚合根）**
 领域一致性边界。嵌入 `aggregate.Base`：只在 applier 里改状态；命令方法校验后 `Apply` 事件。经 Repository + UoW 加载 / 提交，禁止跨 goroutine 共享。
 
 <a id="gloss-command"></a>
 
-**Command（命令）**  
+**Command（命令）**
 改变系统的意图（尚未发生）。含 `CommandType`、可选 `AggregateID`、`Meta`；可实现 `Validate`。经 `CommandService.Execute` 进入 Middleware / AuthZ / Handler。
 
 <a id="gloss-event"></a>
 
-**Event（事件）**  
+**Event（事件）**
 已经发生的事实。含类型名与 envelope（aggregate id、序号、时间）。写入 EventStore 后驱动 Projector / Workflow；经 `event.Registry` 反序列化。
 
 <a id="gloss-eventstore"></a>
 
-**EventStore（事件存储）**  
+**EventStore（事件存储）**
 持久化 Command 记录与聚合事件流，做 OCC、唯一键检查，以及按聚合的[哈希链](#gloss-hash-chain)。实现：`eventstore/memory`、`eventstore/postgres`。业务通常走 Repository，而不是直接 `Append`。
 
 <a id="gloss-hash-chain"></a>
 
-**哈希链（hash chain）**  
-Q3 完整性：每条事件存 `prev_hash` + `event_hash`（对 `eventstore/hashchain` 规范字段做 SHA-256）。链路按 **聚合流**；首条 prev 为 32 字节全 0。加载 / `VerifyChain` 时校验。可发现篡改；**不是**事件签名。增加写路径与校验成本。
+**哈希链（hash chain）**
+ 完整性：每条事件存 `prev_hash` + `event_hash`（对 `eventstore/hashchain` 规范字段做 SHA-256）。链路按 **聚合流**；首条 prev 为 32 字节全 0。加载 / `VerifyChain` 时校验。可发现篡改；**不是**事件签名。增加写路径与校验成本。
 
 <a id="gloss-uow"></a>
 
-**UnitOfWork / UoW（上下文作用域）**  
+**UnitOfWork / UoW（上下文作用域）**
 单次 `Execute` 事务内、挂在 `context` 上的聚合身份映射。`Add` / `Load` 复用同一实例；`Commit` 按加载顺序收集未提交事件。禁止跨 goroutine 共享。
 
 <a id="gloss-occ"></a>
 
-**乐观并发（OCC）**  
+**乐观并发（OCC）**
 追加时 `ExpectedVersion` 必须等于流尖端；否则返回 `ErrOptimisticConcurrency`。`obs` 可统计冲突风暴。
 
 <a id="gloss-unique-keys"></a>
 
-**唯一键（Unique keys）**  
-聚合 `UniqueKeys()` 返回的 `scope → value`（例如租户作用域下的 owner）。库级唯一约束冲突 → `ErrUniqueKeyViolation`。
+**唯一键（Unique keys）**
+聚合 `UniqueKeys` 返回的 `scope → value`（例如租户作用域下的 owner）。库级唯一约束冲突 → `ErrUniqueKeyViolation`。
 
 <a id="gloss-idempotency"></a>
 
-**幂等（Idempotency）**  
+**幂等（Idempotency）**
 键空间为 `(TenantID, IdempotencyKey)`。成功后再用同键重试，默认短路成功；`Strict` 时返回 `ErrReplay`。实现：memory / postgres。
 
 <a id="gloss-tenant"></a>
 
-**租户（Tenant）与用户（User）**  
-`Meta.TenantID` 是多租户隔离单元（Q4：共享 schema + `tenant_id`）。`Meta.UserID` 是操作者——**不要**只信客户端 UserID，应结合 `AuthContext` 与 AuthZ。`tenancy` Middleware 可从 ctx 写入 TenantID。在 Circle 多商户场景里：**Tenant = 入驻商户**，User = 该商户下的买家/操作员——见 [§17 业务示例](#业务示例circle-多商户)；**不要**给每个 C 端用户一个 TenantID。
+**租户（Tenant）与用户（User）**
+`Meta.TenantID` 是多租户隔离单元（共享 schema + `tenant_id`）。`Meta.UserID` 是操作者——**不要**只信客户端 UserID，应结合 `AuthContext` 与 AuthZ。`tenancy` Middleware 可从 ctx 写入 TenantID。在 Circle 多商户场景里：**Tenant = 入驻商户**，User = 该商户下的买家/操作员——见 [§17 业务示例](#业务示例circle-多商户)；**不要**给每个 C 端用户一个 TenantID。
 
 <a id="gloss-outbox"></a>
 
-**Outbox**  
-与事件同事务写入的出站消息表，由轮询器异步投递（Q6）。账本投影仍走 SyncInTxn；Outbox 只做外部 / 异步副作用。
+**Outbox**
+与事件同事务写入的出站消息表，由轮询器异步投递。账本投影仍走 SyncInTxn；Outbox 只做外部 / 异步副作用。
 
 <a id="gloss-aftercommit"></a>
 
-**AfterCommit**  
+**AfterCommit**
 经 `workflow.RegisterAfterCommit` 登记的钩子，只在写事务 **提交成功后** 运行（通知、非账本副作用）。钩子失败不会回滚已提交事件。
 
 <a id="gloss-workflow"></a>
 
-**Workflow**  
+**Workflow**
 对事件做编排的处理器（`RegisterWorkflow`）。仍可在 SyncInTxn 内运行，但 **不参与** 投影重建。可登记 AfterCommit。
 
 <a id="gloss-snapshot"></a>
 
-**Snapshot（快照）**  
-聚合状态的 JSON 折叠点（Q8），用于加速加载：先读快照，再应用后续事件。可用 `snapshot.Snapshotter` 后台批量生成。
+**Snapshot（快照）**
+聚合状态的 JSON 折叠点，用于加速加载：先读快照，再应用后续事件。可用 `snapshot.Snapshotter` 后台批量生成。
 
 <a id="gloss-upcaster"></a>
 
-**Upcaster**  
-在加载路径上把旧事件 payload 升到当前形状（`event/upcast`）。**不**用于导入 Ruby Sequent 库（Q9）。
+**Upcaster**
+在加载路径上把旧事件 payload 升到当前形状（`event/upcast`）。**不**用于导入 Ruby Sequent 库。
 
 <a id="gloss-syncintxn"></a>
 
-**SyncInTxn**  
-默认发布模式：在写事务内同步调用 Projector，再调用 Workflow。账本投影必须用此模式（Q1）。
+**SyncInTxn**
+默认发布模式：在写事务内同步调用 Projector，再调用 Workflow。账本投影必须用此模式。
 
 <a id="gloss-compensating"></a>
 
-**补偿事件**  
+**补偿事件**
 用新的领域事件表达「抵消 / 纠正」，而不是改写历史。GDPR 场景下常与墓碑配合：投影侧停止暴露可识别数据，而不是静默改旧事件。
 
 <a id="gloss-tombstone"></a>
 
-**墓碑（tombstone）**  
-Q5 策略：发出如 `gdpr.SubjectTombstoned` 的标记，投影侧擦除或停服 PII。产品路径 **不是** crypto-shredding。
+**墓碑（tombstone）**
+策略：发出如 `gdpr.SubjectTombstoned` 的标记，投影侧擦除或停服 PII。产品路径 **不是** crypto-shredding。
 
 <a id="gloss-read-your-writes"></a>
 
-**读己之写（read-your-writes）**  
+**读己之写（read-your-writes）**
 写成功后，同一客户端立刻读，应能看到自己的更新。账本投影用 SyncInTxn：提交返回前，余额投影已在同一事务里更新完毕。
 
 <a id="gloss-authz"></a>
 
-**AuthZ**  
-命令边界上的授权（`security.Authorizer` / `WithAuthorizer`）。拒绝返回 `ErrDenied`。与认证（AuthN）分离；哈希链在 EventStore；不做事件签名（Q3）。
+**AuthZ**
+命令边界上的授权（`security.Authorizer` / `WithAuthorizer`）。拒绝返回 `ErrDenied`。与认证（AuthN）分离；哈希链在 EventStore；不做事件签名。
 
 <a id="gloss-meta"></a>
 
-**Meta（命令元数据）**  
+**Meta（命令元数据）**
 `command.Meta`：CommandID、TenantID、UserID、IdempotencyKey、Correlation / Causation、Source、AuthContext 等。`AuditOf` 可生成审计快照。
 
 <a id="gloss-partition-key"></a>
 
-**partition_key**  
+**partition_key**
 聚合 / 流上的分区提示（常由 `tenancy.PartitionKey` 派生），用于共享 schema 内的物理分区或唯一键作用域；与 `tenant_id` 配合，不是 schema-per-tenant。
 
 <a id="gloss-money"></a>
 
-**Money（decimal）**  
-`types.Money`：十进制金额 + 币种；JSON 金额为字符串。禁止 `float64`（Q2）。
+**Money（decimal）**
+`types.Money`：十进制金额 + 币种；JSON 金额为字符串。禁止 `float64`。
 
 <a id="gloss-obs"></a>
 
-**obs / OpenTelemetry**  
+**obs / OpenTelemetry**
 可选的写路径观测钩子（延迟、成败、OCC、可选 Outbox 深度）。**不是**业务审计源；Provider 由应用配置。见 [§19](#19-opentelemetryobs)。
 
 ---

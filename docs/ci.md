@@ -1,22 +1,22 @@
 # CI / CD — go-sequent
 
-GitHub Actions for this **private** module (Q10). No public GOPROXY publish step; no Docker registry.
+GitHub Actions for this **private** module. No public GOPROXY publish step; no Docker registry.
 
 ## Workflows
 
 | File | When | What |
 |------|------|------|
-| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | `push` / `pull_request` to `main` or `master`; also called from Release | `go mod tidy` check, `go vet`, **golangci-lint**, `go test -race ./...`, Postgres ITs |
+| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | `push` / `pull_request` to `main` or `master`; also called from Release | `go mod tidy` check, `go vet`, **golangci-lint**, `go test -race./...`, Postgres ITs |
 | [`.github/workflows/release.yml`](../.github/workflows/release.yml) | push tag `v*` | Re-runs full CI, then **GoReleaser** uploads `cmd/go-sequent` binaries |
 
 ## Jobs (CI)
 
-1. **checks** — `go mod tidy` + `git diff --exit-code`; `go vet ./...`; golangci-lint (config: [`.golangci.yml`](../.golangci.yml))
-2. **test** — `go test -race -count=1 ./...` without Postgres (`GO_SEQUENT_PG_DSN` unset → PG tests skip)
+1. **checks** — `go mod tidy` + `git diff --exit-code`; `go vet./...`; golangci-lint (config: [`.golangci.yml`](../.golangci.yml))
+2. **test** — `go test -race -count=1./...` without Postgres (`GO_SEQUENT_PG_DSN` unset → PG tests skip)
 3. **test-postgres** — Postgres 16 service; `GO_SEQUENT_PG_DSN=postgres://sequent:sequent@localhost:5432/sequent?sslmode=disable`; tests:
-   - `./eventstore/postgres/`
-   - `./examples/bank/` (includes postgres IT)
-   - `./examples/bankpg/`
+ - `./eventstore/postgres/`
+ - `./examples/bank/` (includes postgres IT)
+ - `./examples/bankpg/`
 
 Go version comes from [`go.mod`](../go.mod) via `actions/setup-go` `go-version-file` (module cache enabled).
 
@@ -40,8 +40,8 @@ Private module consumers still use `GOPRIVATE` / `replace` / git — Actions doe
 ## Local
 
 ```bash
-go test -race ./...
-GO_SEQUENT_PG_DSN='postgres://…' go test ./eventstore/postgres/ ./examples/bank/ ./examples/bankpg/
+go test -race./...
+GO_SEQUENT_PG_DSN='postgres://…' go test./eventstore/postgres/./examples/bank/./examples/bankpg/
 # optional
 golangci-lint run
 # optional YAML check

@@ -1,12 +1,12 @@
 # go-sequent 设计文档
 
-> **本文是 [`design.md`](./design.md) 的中文版。**  
+> **本文是 [`design.md`](./design.md) 的中文版。**
 > 英文/双语源文件：[`docs/design.md`](./design.md)；配套研究：[`sequent-research.zh.md`](./sequent-research.zh.md) / [`sequent-research.md`](./sequent-research.md)。
 
-**状态：** 仅设计（本阶段不实现框架代码）  
-**模块路径：** `github.com/go-sequent/go-sequent`  
-**灵感来源：** [Sequent](https://sequent.io/)（[zilverline/sequent](https://github.com/zilverline/sequent)）  
-**目标场景：** 金融系统 — 性能、高可用（HA）、安全、可审计性  
+**状态：** 仅设计（本阶段不实现框架代码）
+**模块路径：** `github.com/go-sequent/go-sequent`
+**灵感来源：** [Sequent](https://sequent.io/)（[zilverline/sequent](https://github.com/zilverline/sequent)）
+**目标场景：** 金融系统 — 性能、高可用（HA）、安全、可审计性
 **配套研究：** [`docs/sequent-research.zh.md`](./sequent-research.zh.md)
 
 ---
@@ -43,20 +43,20 @@
 
 ### 1.2 非目标 — v1 / 近期
 
-- 不是完整应用框架（仓库内无 HTTP/gRPC 服务器或桩、无 UI、无通用 CRUD ORM）— **纯库**（Q7）。
+- 不是完整应用框架（仓库内无 HTTP/gRPC 服务器或桩、无 UI、无通用 CRUD ORM）— **纯库**。
 - MVP 不做多数据库多语言 EventStore（先 PostgreSQL；接口允许后续后端）。
-- 不把 GDPR「被遗忘权」产品化为 crypto-shredding；策略定为 **仅墓碑**（Q5）。
+- 不把 GDPR「被遗忘权」产品化为 crypto-shredding；策略定为 **仅墓碑**。
 - 不做分布式多主 EventStore / CRDT 合并引擎。
-- 不内嵌完整工作流引擎（Temporal/Cadence）；Workflow 保持进程内 + 可选 outbox/任务钩子（启用 outbox 时传输为 Postgres 轮询 — Q6）。
-- **永不**导入 / 迁移 Ruby Sequent 数据库（Q9）；仅概念灵感，不做 dump/线格式兼容。
-- 现阶段**不公开 / 不开源**（Q10）；许可证保持私有、未发布。
+- 不内嵌完整工作流引擎（Temporal/Cadence）；Workflow 保持进程内 + 可选 outbox/任务钩子（启用 outbox 时传输为 Postgres 轮询）。
+- **永不**导入 / 迁移 Ruby Sequent 数据库；仅概念灵感，不做 dump/线格式兼容。
+- 现阶段**不公开 / 不开源**；许可证保持私有、未发布。
 
 ### 1.3 设计原则
 
 1. **Events 是唯一事实来源**；投影可丢弃重建。
 2. **聚合在处理 command 时不得读取其他聚合的状态**（靠 API 文化 + lint 指导约束）。
 3. **默认 = 单库事务**覆盖 command + events + 同步 projector（与 Sequent 对齐）；异步模式须显式选择。
-4. **金融默认开启**：金额类型为 **decimal**（非整数最小单位 — Q2）、幂等键、每条 command 的审计元数据。
+4. **金融默认开启**：金额类型为 **decimal**（非整数最小单位）、幂等键、每条 command 的审计元数据。
 5. **Boring Go**：接口、构造函数、`context.Context`，不强制全局可变单例（通过 DI 配置）。
 
 ---
@@ -65,9 +65,9 @@
 
 | Sequent（Ruby） | go-sequent（Go 习惯） |
 |-----------------|------------------------|
-| `Sequent::Command` + `attrs` + ActiveModel validations | `Command` 接口 + struct tag / `Validate() error` / 可选 `go-playground/validator` |
+| `Sequent::Command` + `attrs` + ActiveModel validations | `Command` 接口 + struct tag / `Validate error` / 可选 `go-playground/validator` |
 | `Sequent::Event` + `attrs` | `Event` 接口；按类型名注册具体 struct |
-| `Sequent::ValueObject` | 不可变值对象 struct；可选 `Validate()` |
+| `Sequent::ValueObject` | 不可变值对象 struct；可选 `Validate` |
 | `Sequent::AggregateRoot` + `on Event do` | 嵌入 `aggregate.Root`；注册 applier `On(Type, func)` 或生成 switch；领域方法调用 `Apply` |
 | `CommandHandler` + `on Command do` | `CommandHandler` 接口；按 `reflect.Type` 或字符串类型注册表路由 |
 | `CommandService` + 线程本地队列 | `command.Service`，使用**上下文作用域**的命令队列 + UoW |
@@ -95,19 +95,19 @@ Ruby Sequent 使用**每线程** UoW。Go 必须使用存于 `context.Context`�
 
 ```text
 type Command interface {
-    CommandType() string      // stable name, e.g. "account.OpenAccount"
-    AggregateID() (uuid.UUID, bool) // optional primary aggregate
-    Meta() CommandMeta        // user, tenant, idempotency, trace
+ CommandType string // stable name, e.g. "account.OpenAccount"
+ AggregateID (uuid.UUID, bool) // optional primary aggregate
+ Meta CommandMeta // user, tenant, idempotency, trace
 }
 ```
 
 **CommandMeta（面向金融）：**
 
-- `CommandID`（uuid）— 存储与幂等相关联的唯一 id  
-- `IdempotencyKey`（string，可选）— 客户端提供  
-- `UserID`、`TenantID`  
-- `CausedByEvent` — Workflow 触发时的 `(aggregate_id, sequence_number)`  
-- `IssuedAt`  
+- `CommandID`（uuid）— 存储与幂等相关联的唯一 id
+- `IdempotencyKey`（string，可选）— 客户端提供
+- `UserID`、`TenantID`
+- `CausedByEvent` — Workflow 触发时的 `(aggregate_id, sequence_number)`
+- `IssuedAt`
 - `AuthContext` 不透明 token / claims 引用（不一定持久化）
 
 Command 表达**意图**，在 handler 运行前校验。成功的 command 像 Sequent 的 `commands` 表一样持久化。
@@ -116,10 +116,10 @@ Command 表达**意图**，在 handler 运行前校验。成功的 command 像 S
 
 ```text
 type Event interface {
-    EventType() string
-    AggregateID() uuid.UUID
-    SequenceNumber() int64
-    CreatedAt() time.Time
+ EventType string
+ AggregateID uuid.UUID
+ SequenceNumber int64
+ CreatedAt time.Time
 }
 ```
 
@@ -131,15 +131,15 @@ type Event interface {
 
 ```text
 type AggregateRoot interface {
-    ID() uuid.UUID
-    AggregateType() string
-    UncommittedEvents() []Event
-    ClearUncommitted()
-    Version() int64              // last committed sequence
-    Apply(Event)                 // only via Apply helper internally
-    Invariants() error           // Sequent invariants!
-    UniqueKeys() map[string]any  // optional
-    PartitionKey() string        // optional multi-tenant / shard key
+ ID uuid.UUID
+ AggregateType string
+ UncommittedEvents []Event
+ ClearUncommitted
+ Version int64 // last committed sequence
+ Apply(Event) // only via Apply helper internally
+ Invariants error // Sequent invariants!
+ UniqueKeys map[string]any // optional
+ PartitionKey string // optional multi-tenant / shard key
 }
 ```
 
@@ -148,7 +148,7 @@ type AggregateRoot interface {
 1. 公开方法：守卫 + 决策 → `Apply(newEvent)`。
 2. 状态变更**仅**发生在 event applier 中（保证 replay == live）。
 3. 聚合内无 I/O。
-4. 加载后与提交前调用 `Invariants()`。
+4. 加载后与提交前调用 `Invariants`。
 
 **实现草图：** 嵌入提供 Apply、序号分配、未提交缓冲的 `aggregate.Base`；用户类型注册 applier。
 
@@ -166,17 +166,17 @@ type AggregateRoot interface {
 
 ```text
 type Handler interface {
-    Handles() []string // command types
-    Handle(ctx context.Context, cmd Command) error
+ Handles []string // command types
+ Handle(ctx context.Context, cmd Command) error
 }
 
 type Service struct {
-    Middleware []Middleware
-    Filters    []Filter
-    Router     *Router
-    Repo       *repository.Repository
-    Store      eventstore.Store
-    Tx         TxManager
+ Middleware []Middleware
+ Filters []Filter
+ Router *Router
+ Repo *repository.Repository
+ Store eventstore.Store
+ Tx TxManager
 }
 ```
 
@@ -192,11 +192,11 @@ type Service struct {
 
 接口职责：
 
-- `Append(ctx, cmd, streamsWithEvents)` — 带乐观并发与唯一键的原子追加  
-- `LoadStream(ctx, id)` / `LoadStreams` — 从最新兼容快照加载  
-- `StreamEvents(ctx, id, opts)` — 游标分批  
-- `RegisterTypes`  
-- `Snapshot` API  
+- `Append(ctx, cmd, streamsWithEvents)` — 带乐观并发与唯一键的原子追加
+- `LoadStream(ctx, id)` / `LoadStreams` — 从最新兼容快照加载
+- `StreamEvents(ctx, id, opts)` — 游标分批
+- `RegisterTypes`
+- `Snapshot` API
 
 PostgreSQL 实现应镜像 Sequent 的 `store_events` 过程语义（见第 5 节）。
 
@@ -220,7 +220,7 @@ PostgreSQL 实现应镜像 Sequent 的 `store_events` 过程语义（见第 5 �
 
 - 默认：JSON（对齐 Sequent 的 `event_json` / `command_json`）。
 - 可插拔按类型的 `Codec`；载荷演进用 upcaster。
-- 快照格式 = **JSON**（Q8），独立版本（`snapshot_version`）。
+- 快照格式 = **JSON**，独立版本（`snapshot_version`）。
 
 ### 3.9 Migrations（迁移）
 
@@ -238,44 +238,44 @@ github.com/go-sequent/go-sequent
 ├── go.mod
 ├── README.md
 ├── docs/
-│   ├── design.md                 # this document
-│   └── sequent-research.md
+│ ├── design.md # this document
+│ └── sequent-research.md
 ├── cmd/
-│   └── go-sequent/               # CLI: migrate, replay, snapshot
-├── sequent/                      # façade: NewApp, Config
+│ └── go-sequent/ # CLI: migrate, replay, snapshot
+├── sequent/ # façade: NewApp, Config
 ├── command/
-│   ├── command.go                # Command, Meta, validation
-│   ├── service.go
-│   ├── middleware.go
-│   └── router.go
+│ ├── command.go # Command, Meta, validation
+│ ├── service.go
+│ ├── middleware.go
+│ └── router.go
 ├── event/
-│   ├── event.go
-│   └── registry.go               # type name ↔ factory
+│ ├── event.go
+│ └── registry.go # type name ↔ factory
 ├── aggregate/
-│   ├── root.go                   # Base + Apply
-│   └── repository.go
+│ ├── root.go # Base + Apply
+│ └── repository.go
 ├── eventstore/
-│   ├── store.go                  # interface
-│   ├── errors.go                 # OptimisticConcurrency, UniqueKey
-│   └── postgres/
-│       ├── store.go
-│       ├── schema/               # SQL + procedures
-│       └── snapshot.go
+│ ├── store.go # interface
+│ ├── errors.go # OptimisticConcurrency, UniqueKey
+│ └── postgres/
+│ ├── store.go
+│ ├── schema/ # SQL + procedures
+│ └── snapshot.go
 ├── projector/
-│   ├── projector.go
-│   ├── persistor.go
-│   └── replay/
+│ ├── projector.go
+│ ├── persistor.go
+│ └── replay/
 ├── workflow/
-│   └── workflow.go
+│ └── workflow.go
 ├── publish/
-│   ├── publisher.go              # sync in-txn publisher
-│   └── outbox/                   # optional async; Postgres polling when used
-├── types/                        # Money (decimal), Secret hooks
-├── security/                     # Authz interfaces (no event signing — Q3; hash chain in eventstore)
-├── tenancy/                      # shared schema + tenant_id helpers
-├── obs/                          # OpenTelemetry helpers
+│ ├── publisher.go # sync in-txn publisher
+│ └── outbox/ # optional async; Postgres polling when used
+├── types/ # Money (decimal), Secret hooks
+├── security/ # Authz interfaces (no event signing ; hash chain in eventstore)
+├── tenancy/ # shared schema + tenant_id helpers
+├── obs/ # OpenTelemetry helpers
 ├── migrate/
-└── testkit/                      # Given/When/Expect helpers
+└── testkit/ # Given/When/Expect helpers
 ```
 
 **依赖方向：** `command` → `aggregate` → `eventstore`；`projector`/`workflow` ← `publish`；应用导入 `sequent` 门面 + 自身领域包。领域代码**不应**导入 `eventstore/postgres`。
@@ -297,16 +297,16 @@ github.com/go-sequent/go-sequent
 | `aggregate_unique_keys` | 业务唯一性 |
 | `snapshot_records` / `aggregates_that_need_snapshots` | 快照 |
 | `idempotency_keys`（**新增**） | `(tenant_id, key)` → `command_id` / 结果状态 |
-| `outbox`（**可选**） | 异步发布用的事务性 outbox；由 **Postgres 轮询** 排空（Q6） |
+| `outbox`（**可选**） | 异步发布用的事务性 outbox；由 **Postgres 轮询** 排空 |
 | `audit_access_log`（**可选**） | 谁读取了敏感聚合（合规） |
 
 **建议在 `commands` / 事件信封上增加的金融列：**
 
-- `tenant_id uuid`（共享 schema 多租户 — Q4）
+- `tenant_id uuid`（共享 schema 多租户）
 - `idempotency_key text`（可空；与租户组合唯一）
 - `correlation_id` / `causation_id`
 
-事件带 `prev_hash` / `event_hash`（SHA-256 哈希链，Q3）。**无**签名列。
+事件带 `prev_hash` / `event_hash`（SHA-256 哈希链）。**无**签名列。
 
 ### 5.2 乐观并发
 
@@ -331,19 +331,19 @@ github.com/go-sequent/go-sequent
 
 镜像 Sequent 8：
 
-1. **prepare** — 创建 `replay_schema`，复制所管理表的 DDL（索引可选）。  
-2. **replay** — 按聚合 id 区间 / 事件批次并行 worker；批量插入。  
-3. **catchup** — 线上继续写入时增量追赶。  
-4. **optimize** — 建索引、`VACUUM`/`ANALYZE`（视情况）。  
-5. **golive** — 短暂加锁 / 将表切入 `view_schema`；归档旧表。  
+1. **prepare** — 创建 `replay_schema`，复制所管理表的 DDL（索引可选）。
+2. **replay** — 按聚合 id 区间 / 事件批次并行 worker；批量插入。
+3. **catchup** — 线上继续写入时增量追赶。
+4. **optimize** — 建索引、`VACUUM`/`ANALYZE`（视情况）。
+5. **golive** — 短暂加锁 / 将表切入 `view_schema`；归档旧表。
 6. **abort** — 丢弃 replay schema。
 
 **一致性模式：**
 
 | 模式 | 行为 | 用途 |
 |------|------|------|
-| `SyncInTxn`（默认，**Q1 已决**） | Projector 在写事务内更新 | 强一致；**账本余额必须同步** |
-| `OutboxAsync` | 写 events + outbox 行；worker 经 Postgres 轮询投影（Q6） | 非账本 / 外部集成路径 |
+| `SyncInTxn`（默认，** 已决**） | Projector 在写事务内更新 | 强一致；**账本余额必须同步** |
+| `OutboxAsync` | 写 events + outbox 行；worker 经 Postgres 轮询投影 | 非账本 / 外部集成路径 |
 | `Hybrid` | 关键 projector 同步；其余异步 | 账本同步；搜索/通知异步 |
 
 ### 5.5 分区与 HA 说明
@@ -362,7 +362,7 @@ github.com/go-sequent/go-sequent
 - 正常运行不提供对 events 的 update/delete API。
 - 业务纠错用补偿事件（如 `PaymentReversed`），禁止静默篡改。
 - Command + event 关联以支持取证重放。
-- 事件完整性 = **哈希链**（按聚合流 SHA-256），篡改可发现；**无**事件签名（Q3，2026-10-26 Asia/Shanghai 修订）。DB ACL/备份仍为互补手段。
+- 事件完整性 = **哈希链**（按聚合流 SHA-256），篡改可发现；**无**事件签名。DB ACL/备份仍为互补手段。
 
 ### 6.2 幂等性（Idempotency）
 
@@ -374,7 +374,7 @@ github.com/go-sequent/go-sequent
 ### 6.3 金额 / decimal 边界
 
 - **框架不发明会计规则。**
-- 提供 `types.Money`，金额使用 **decimal**（Q2）— 例如 `shopspring/decimal` / `cockroachdb/apd` — 含货币代码与固定精度策略。
+- 提供 `types.Money`，金额使用 **decimal**— 例如 `shopspring/decimal` / `cockroachdb/apd` — 含货币代码与固定精度策略。
 - **不以**整数最小单位作为框架金额表示。
 - 文档化 decimal 的 JSON 编解码规则。
 - 通过 lint / testkit **禁止 Command/Event 金额载荷使用 `float64`**。
@@ -385,11 +385,11 @@ github.com/go-sequent/go-sequent
 - 钩子：`PayloadProtector` 接口 — 插入前加密选定 JSON 字段；加载时解密。
 - 优先信封加密（DEK/KEK）+ KMS；文档化密钥轮换。
 - 对事件中的 PII，应用层字段加密优于仅依赖磁盘加密。
-- GDPR / 留存：**仅墓碑**（Q5）— 应用墓碑事件并停止处理可识别数据；**不以** crypto-shredding 作为产品策略；物理删除仅作例外运维并配备流修复工具。
+- GDPR / 留存：**仅墓碑**— 应用墓碑事件并停止处理可识别数据；**不以** crypto-shredding 作为产品策略；物理删除仅作例外运维并配备流修复工具。
 
 ### 6.5 多租户钩子
 
-- 模型 = **共享 schema + `tenant_id`**（Q4）。
+- 模型 = **共享 schema + `tenant_id`**。
 - Command meta 上的 `TenantID`；`partition_key` 仍可用租户（或 tenant+hash）做共享 schema 内的物理分区。
 - Repository/store 在加载时强制租户匹配（纵深防御）。
 - Unique key 的 scope 应含租户（`scope = "tenant:{id}:email"`）。
@@ -397,7 +397,7 @@ github.com/go-sequent/go-sequent
 
 ### 6.6 可观测性与 SLA / HA
 
-**框架内 OTel 的作用：** 通过厂商无关钩子（`obs` + `sequent.WithObs`）让运维看到写路径健康度，而不在库内绑定某一 APM。与 EventStore / 命令审计互补——**不是**业务审计轨迹（Q3 完整性为哈希链；Q7 将 exporter 留在宿主应用）。见 [指南 §19 作用](./guide.zh.md#作用)。
+**框架内 OTel 的作用：** 通过厂商无关钩子（`obs` + `sequent.WithObs`）让运维看到写路径健康度，而不在库内绑定某一 APM。与 EventStore / 命令审计互补——**不是**业务审计轨迹（完整性为哈希链； 将 exporter 留在宿主应用）。见 [指南 §19 作用](./guide.zh.md#作用)。
 
 **当前已实现（`obs`）：** span `sequent.Execute`；指标 `sequent.command.duration_ms`、`sequent.command.total`、`sequent.optimistic_conflict.total`；可选 `sequent.outbox.depth`。`RecordEvents` API 存在但未自动挂到 append。
 
@@ -438,11 +438,11 @@ github.com/go-sequent/go-sequent
 
 适用于：
 
-- Projector I/O 过重以至于影响写 SLO，或  
-- 外部系统必须在提交后看到事件，或  
+- Projector I/O 过重以至于影响写 SLO，或
+- 外部系统必须在提交后看到事件，或
 - 跨服务集成。
 
-模式：在与 events 同一事务中插入 `outbox` 行；publisher worker 通过 **Postgres 表轮询**（Q6）至少一次投递 — 框架默认不用 LISTEN/NOTIFY 或 Kafka；消费者幂等。账本 / 余额 projector 保持 **`SyncInTxn`**（Q1），以保证读己之写。
+模式：在与 events 同一事务中插入 `outbox` 行；publisher worker 通过 **Postgres 表轮询**至少一次投递 — 框架默认不用 LISTEN/NOTIFY 或 Kafka；消费者幂等。账本 / 余额 projector 保持 **`SyncInTxn`**，以保证读己之写。
 
 ### 7.4 性能杠杆
 
@@ -460,7 +460,7 @@ github.com/go-sequent/go-sequent
 
 ```text
 type Authorizer interface {
-    Authorize(ctx context.Context, cmd Command) error
+ Authorize(ctx context.Context, cmd Command) error
 }
 ```
 
@@ -471,7 +471,7 @@ type Authorizer interface {
 ### 8.2 事件完整性（哈希链；不签名）
 
 - **范围内：** 按聚合流哈希链（`prev_hash` / `event_hash`，SHA-256）。
-- **不在范围内：** 事件签名（Q3）。
+- **不在范围内：** 事件签名。
 - **规范字节**（UTF-8 行以 `\n` 拼接，末行无尾换行）：`event_type`、`aggregate_id`、`sequence_number`、`created_at`（UTC 截断到微秒再 RFC3339Nano）、`event_json`（**BYTEA** 原文，非 JSONB）、`prev_hash` hex（64 位小写）。序号 1 的 prev 为 genesis（32 字节全 0）。见 `eventstore/hashchain`。迁移：`005_hash_chain.sql`、`006_event_json_bytea.sql`。
 - PostgreSQL ACL、备份、运维层可选 WORM / 不可变存储仍为互补手段。
 - 应用仍可通过 `PayloadProtector` 加密 PII 字段，这并不等同于事件真实性签名。
@@ -501,20 +501,20 @@ type Authorizer interface {
 ### 阶段 0 — 基础（设计锁定）
 
 - 本文档 + 研究笔记。
-- Q1–Q10 已由 wei 于 **2026-10-26**（Asia/Shanghai）拍板 — 见第 10 节。
+ 已由 wei 于 **2026-10-26**（Asia/Shanghai）拍板 — 见第 10 节。
 
 ### 阶段 1 — MVP（纯库；示例银行/账本演示应用不放在本仓库）
 
 - `Command` / `Event` / `Aggregate` 基础 + 注册表。
 - `CommandService` + 中间件 + 内存或 Postgres EventStore **最小集**（events + commands + 乐观并发）。
-- **同步**进程内 publisher + 一个示例 Projector（账本余额同步 — Q1）。
-- `types.Money` 使用 **decimal**（Q2）。
+- **同步**进程内 publisher + 一个示例 Projector（账本余额同步）。
+- `types.Money` 使用 **decimal**。
 - `testkit` Given/When/Expect。
-- 文档：入门指南。仓库内无 gRPC/HTTP 桩（Q7）。
+- 文档：入门指南。仓库内无 gRPC/HTTP 桩。
 
 ### 阶段 2 — 与 Sequent 核心对齐
 
-- **JSON** 快照 + 后台 snapshotter（Q8）。
+- **JSON** 快照 + 后台 snapshotter。
 - Unique keys。
 - Workflows + AfterCommit。
 - PostgreSQL 过程对齐（`store_events`）。
@@ -523,14 +523,14 @@ type Authorizer interface {
 
 ### 阶段 3 — 金融就绪
 
-- 租户作用域幂等键（共享 schema + `tenant_id` — Q4）。
+- 租户作用域幂等键（共享 schema + `tenant_id`）。
 - AuthZ 钩子 + 审计元数据标准。
 - Money/decimal lint + `types.Money`。
-- 载荷加密钩子；**仅墓碑** GDPR 指南（Q5）— 无 crypto-shredding 产品路径。
-- 可选 outbox publisher，传输为 **Postgres 轮询**（Q6）；账本 projector 保持同步。
+- 载荷加密钩子；**仅墓碑** GDPR 指南— 无 crypto-shredding 产品路径。
+- 可选 outbox publisher，传输为 **Postgres 轮询**；账本 projector 保持同步。
 - OpenTelemetry metrics/traces。
 - 共享 schema + `tenant_id` 的多租户辅助。
-- 哈希链已实现；**无**事件签名（Q3）。
+- 哈希链已实现；**无**事件签名。
 
 ### 阶段 4 — 生产加固
 
@@ -538,8 +538,8 @@ type Authorizer interface {
 - 运维手册（故障切换、重建、备份恢复）。
 - 共享 schema 内的规模化分区指导。
 - 安全评审 / 威胁模型刷新。
-- 事件演进兼容策略（仍 **永不**导入 Ruby Sequent DB — Q9）。
-- 项目保持私有 / 不公开（Q10）。
+- 事件演进兼容策略（仍 **永不**导入 Ruby Sequent DB）。
+- 项目保持私有 / 不公开。
 
 ---
 
@@ -553,14 +553,14 @@ type Authorizer interface {
 |----|------|
 | D1 | 模块路径 = `github.com/go-sequent/go-sequent`（更名历史见英文 `design.md` D1）。 |
 | D2 | PostgreSQL 是首个（且 MVP 唯一）EventStore 后端。 |
-| D3 | 默认发布模式 = **写事务内同步 projector**（与 Sequent 对齐；确认 Q1）。 |
+| D3 | 默认发布模式 = **写事务内同步 projector**（与 Sequent 对齐）。 |
 | D4 | UoW 为**上下文作用域**，非进程全局。 |
 | D5 | Command/Event 默认 codec 为 JSON。 |
 | D6 | 业务纠错用补偿事件，而非可变历史。 |
-| D7 | 金额字段禁止 `float64`；金额类型 = **decimal**（非最小单位；确认 Q2）。 |
+| D7 | 金额字段禁止 `float64`；金额类型 = **decimal**（非最小单位）。 |
 | D8 | 显式注册 handler（不强制反射自动注册魔法）。 |
 | D9 | 设计文档先于实现；设计阶段未启动框架代码。 |
-| D10 | 仅概念上借鉴 Sequent — **永不**导入 Ruby Sequent DB（确认 Q9）。 |
+| D10 | 仅概念上借鉴 Sequent — **永不**导入 Ruby Sequent DB。 |
 | D11 | **Q1** 账本 / 余额投影 = **同步**（`SyncInTxn`）。 |
 | D12 | **Q2** 金额表示 = **decimal**。 |
 | D13 | **Q3** 事件完整性 = **哈希链**（无事件签名）。取代此前「仅 DB」。 |

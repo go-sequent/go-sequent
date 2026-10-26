@@ -2,7 +2,7 @@
 
 对齐 Sequent 8：**prepare → replay → catchup → optimize → golive**（可 **abort**）。
 
-需强一致的账本/余额投影在**线上写路径**保持 **SyncInTxn**（Q1）。重建针对可丢弃读模型。
+需强一致的账本/余额投影在**线上写路径**保持 **SyncInTxn**。重建针对可丢弃读模型。
 
 ## 库 API
 
@@ -11,9 +11,9 @@
 ## CLI（schema 阶段）
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances \
-  -stage prepare -tables account_balances
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent replay -dsn "$DSN" -projector balances \
+ -stage prepare -tables account_balances
 ```
 
 完整事件流回放需在应用二进制中注册 Projector（CLI 不知情）。

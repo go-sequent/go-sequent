@@ -2,7 +2,7 @@
 
 Go CQRS + Event Sourcing library for financial systems, inspired by [Sequent](https://sequent.io/) (conceptual only — no Ruby DB compatibility).
 
-**Status:** Phase 4 (production hardening). Private / not open-source (Q10).
+**Status:** Phase 4 (production hardening). Private / not open-source.
 
 ## Module
 
@@ -23,16 +23,16 @@ github.com/go-sequent/go-sequent
 ## Test & bench
 
 ```bash
-go test ./...
-go test ./bench/ -bench=. -benchmem
-GO_SEQUENT_PG_DSN='postgres://…' go test ./bench/ -bench=BenchmarkPostgres -benchmem
+go test./...
+go test./bench/ -bench=. -benchmem
+GO_SEQUENT_PG_DSN='postgres://…' go test./bench/ -bench=BenchmarkPostgres -benchmem
 ```
 
 ## Ops CLI
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent outbox -dsn "$DSN" -once
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent outbox -dsn "$DSN" -once
 ```
 
-Ledger projectors remain **SyncInTxn** (Q1). Hash chain yes; **no** event signatures (Q3). Never import Ruby Sequent DBs (Q9).
+Ledger projectors remain **SyncInTxn**. Hash chain yes; **no** event signatures. Never import Ruby Sequent DBs.

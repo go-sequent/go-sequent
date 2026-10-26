@@ -1,20 +1,20 @@
 -- EXAMPLE ONLY — not applied by go-sequent Migrate.
--- Illustrates hash partitioning of events by partition_key within a shared schema (Q4).
+-- Illustrates hash partitioning of events by partition_key within a shared schema.
 -- Adapt names/moduli after measuring real tenant cardinality and query patterns.
 -- Requires a maintenance window and careful data move from the existing events table.
 
 -- 1) Create partitioned parent (empty) matching Phase 1–3 columns:
 /*
 CREATE TABLE events_partitioned (
-    aggregate_id     UUID NOT NULL,
-    partition_key    TEXT NOT NULL DEFAULT '',
-    sequence_number  BIGINT NOT NULL,
-    created_at       TIMESTAMPTZ NOT NULL,
-    command_id       UUID NOT NULL,
-    event_type_id    SMALLINT NOT NULL,
-    event_json       BYTEA NOT NULL,
-    tenant_id        UUID,
-    PRIMARY KEY (partition_key, aggregate_id, sequence_number)
+ aggregate_id UUID NOT NULL,
+ partition_key TEXT NOT NULL DEFAULT '',
+ sequence_number BIGINT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL,
+ command_id UUID NOT NULL,
+ event_type_id SMALLINT NOT NULL,
+ event_json BYTEA NOT NULL,
+ tenant_id UUID,
+ PRIMARY KEY (partition_key, aggregate_id, sequence_number)
 ) PARTITION BY HASH (partition_key);
 
 -- 2) Create N hash partitions (example N=8):

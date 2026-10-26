@@ -1,8 +1,8 @@
 # go-sequent Framework Guide
 
-> Documents **what is implemented** in Phases 1–4 and `examples/bank`. Section names follow the spirit of the [Sequent](https://sequent.io/) Reference Guide; APIs and schemas are Go-native (**never** import a Ruby Sequent database — Q9).
+> Documents **what is implemented** in Phases 1–4 and `examples/bank`. Section names follow the spirit of the [Sequent](https://sequent.io/) Reference Guide; APIs and schemas are Go-native (**never** import a Ruby Sequent database).
 
-Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo — Q7)
+Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo)
 
 ---
 
@@ -44,7 +44,7 @@ Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/g
 
 - One **DB transaction + context-scoped UnitOfWork** per `Execute`
 - **Optimistic concurrency** and **unique keys** on append
-- [Ledger projections](#gloss-ledger-projection) **synchronously in the write txn** ([`SyncInTxn`](#gloss-syncintxn), Q1)
+- [Ledger projections](#gloss-ledger-projection) **synchronously in the write txn** ([`SyncInTxn`](#gloss-syncintxn))
 - Decimal **Money**, tenant-scoped idempotency, AuthZ hooks, JSON snapshots, tombstone GDPR hooks, optional outbox polling
 - Optional **OpenTelemetry** (`obs`) for write-path latency / success-error / OCC conflicts and outbox backlog signals — **not** a business audit source; see [§19 Role and purpose](#role-and-purpose)
 
@@ -62,22 +62,22 @@ See also [getting-started.md](./getting-started.md) and [design.md](./design.md)
 
 ```text
 Client / service entry
-        │
-        ▼
-  CommandService.Execute(ctx, cmds...)
-        │  Tx + UnitOfWork
-        ├─ Middleware (tenancy / idempotency …)
-        ├─ Filters (AuthZ)
-        ├─ Command.Validate (optional)
-        ▼
-  CommandHandler
-        │  Repo.Add / Repo.Load → aggregate Apply
-        ▼
-  Repository.Commit
-        │  EventStore.Append
-        │  Publisher.Publish → Projectors → Workflows
-        ▼
-  Tx commit → AfterCommit hooks
+ │
+ ▼
+ CommandService.Execute(ctx, cmds...)
+ │ Tx + UnitOfWork
+ ├─ Middleware (tenancy / idempotency …)
+ ├─ Filters (AuthZ)
+ ├─ Command.Validate (optional)
+ ▼
+ CommandHandler
+ │ Repo.Add / Repo.Load → aggregate Apply
+ ▼
+ Repository.Commit
+ │ EventStore.Append
+ │ Publisher.Publish → Projectors → Workflows
+ ▼
+ Tx commit → AfterCommit hooks
 ```
 
 You implement **Command / Handler / Aggregate / Event / Projector** (and optional Workflow). `command.Service`, `aggregate.Repository`, `eventstore`, and `publish.SyncInTxn` wire the rest.
@@ -90,13 +90,13 @@ Package: `command`
 
 ```go
 type Command interface {
-    CommandType() string
-    AggregateID() (uuid.UUID, bool)
-    Meta() *Meta
+ CommandType string
+ AggregateID (uuid.UUID, bool)
+ Meta *Meta
 }
 ```
 
-Embed `command.Base` for `Meta()`. `EnsureMeta` fills `CommandID`, `IssuedAt`, `CorrelationID`.
+Embed `command.Base` for `Meta`. `EnsureMeta` fills `CommandID`, `IssuedAt`, `CorrelationID`.
 
 | Field | Role |
 |-------|------|
@@ -107,7 +107,7 @@ Embed `command.Base` for `Meta()`. `EnsureMeta` fills `CommandID`, `IssuedAt`, `
 | `Source` | Label (`api`, `workflow`, …) |
 | `AuthContext` | Opaque claims — **do not** trust client `UserID` alone |
 
-`command.AuditOf(cmd)` builds a persistence-friendly audit snapshot. Implement `Validate() error` for self-checks before the handler.
+`command.AuditOf(cmd)` builds a persistence-friendly audit snapshot. Implement `Validate error` for self-checks before the handler.
 
 ---
 
@@ -120,7 +120,7 @@ Events embed `event.Base` and set a stable type name. `Apply` fills aggregate id
 **Registry** maps type name → factory for JSON decode:
 
 ```go
-r.Register("bank.AccountOpened", func() event.Event { return &AccountOpened{} })
+r.Register("bank.AccountOpened", func event.Event { return &AccountOpened{} })
 ```
 
 Upcasters live in `event/upcast` and register on `sequent.App.Upcasters`. No Ruby Sequent table compatibility.
@@ -133,11 +133,11 @@ Package: `aggregate`
 
 Embed `aggregate.Base`:
 
-1. `Init(id, typeName)` and `On(sample, applier)` — appliers are **pure state** only  
-2. Command methods validate then `Apply(event)` — **no I/O** in appliers  
-3. Optional `Invariants()`, `UniqueKeys()`, `PartitionKey`
+1. `Init(id, typeName)` and `On(sample, applier)` — appliers are **pure state** only
+2. Command methods validate then `Apply(event)` — **no I/O** in appliers
+3. Optional `Invariants`, `UniqueKeys`, `PartitionKey`
 
-Uncommitted events sit in `UncommittedEvents()` until `Repository.Commit`.
+Uncommitted events sit in `UncommittedEvents` until `Repository.Commit`.
 
 ---
 
@@ -145,8 +145,8 @@ Uncommitted events sit in `UncommittedEvents()` until `Repository.Commit`.
 
 ```go
 type Handler interface {
-    Handles() []string
-    Handle(ctx context.Context, cmd Command) error
+ Handles []string
+ Handle(ctx context.Context, cmd Command) error
 }
 ```
 
@@ -158,9 +158,9 @@ Use `Repo.Add` / `Repo.Load` only — do not call `EventStore.Append` from handl
 
 **UnitOfWork** is a per-request identity map on `context` (**never** share across goroutines).
 
-- `Execute` creates UoW inside the txn  
-- `Add` / `Load` require UoW in ctx  
-- `Load` reuses the identity-map instance  
+- `Execute` creates UoW inside the txn
+- `Add` / `Load` require UoW in ctx
+- `Load` reuses the identity-map instance
 - `Commit` appends in **load/registration order**, publishes, then `MarkCommitted`
 
 Factories: `RegisterFactory(aggregateType, func(id) Root)`.
@@ -170,7 +170,7 @@ Factories: `RegisterFactory(aggregateType, func(id) Root)`.
 ## 8. CommandService and middleware
 
 ```go
-svc.Execute(ctx, cmd1, cmd2, ...) // one txn, one UoW
+svc.Execute(ctx, cmd1, cmd2,...) // one txn, one UoW
 ```
 
 Flow: AfterCommit bag → `WithinTx` → UoW → for each command: Middleware → Filters → Validate → Dispatch → Commit → after success, AfterCommit.
@@ -189,10 +189,10 @@ VerifyChain(ctx, aggregateID) error // memory + postgres
 
 Errors: `ErrOptimisticConcurrency`, `ErrUniqueKeyViolation`, `ErrStreamNotFound`, `ErrHashChainTamper`, `ErrHashChainIncomplete`.
 
-- **memory** — unit/IT  
+- **memory** — unit/IT
 - **postgres** — `Open` + `Migrate` (schemas `001`–`005`); also `TxManager` + `SnapshotStore`
 
-### Hash chain (Q3)
+### Hash chain
 
 Per-aggregate SHA-256 chain: each row stores `prev_hash` + `event_hash`. Seq 1 uses genesis (32 zero bytes) as `prev_hash`. Canonical input (UTF-8 lines joined by `\n`, no trailing newline):
 
@@ -209,9 +209,9 @@ Per-aggregate SHA-256 chain: each row stores `prev_hash` + `event_hash`. Seq 1 u
 
 ## 10. Publisher: SyncInTxn and outbox
 
-**SyncInTxn (default, Q1):** in the write txn, projectors then workflows; failure rolls back. Replay uses `PublishProjectorsOnly`.
+**SyncInTxn (default):** in the write txn, projectors then workflows; failure rolls back. Replay uses `PublishProjectorsOnly`.
 
-**WithOutbox (Q6):** after sync handlers, enqueue matching events; drain with `outbox.Poller` / `go-sequent outbox` (**table polling**). Keep ledger projectors on SyncInTxn.
+**WithOutbox :** after sync handlers, enqueue matching events; drain with `outbox.Poller` / `go-sequent outbox` (**table polling**). Keep ledger projectors on SyncInTxn.
 
 ---
 
@@ -219,8 +219,8 @@ Per-aggregate SHA-256 chain: each row stores `prev_hash` + `event_hash`. Seq 1 u
 
 ```go
 type Projector interface {
-    publish.Handler
-    ManagedTables() []string
+ publish.Handler
+ ManagedTables []string
 }
 ```
 
@@ -242,14 +242,14 @@ Runs only after a successful commit. See bank `NotifyWorkflow`.
 
 ## 13. Snapshotting (JSON)
 
-Q8: **JSON**. Implement `SnapshotVersion` / `MarshalSnapshot` / `UnmarshalSnapshot`. Repository loads latest snapshot then remaining events. `snapshot.Snapshotter` can batch in the background.
+**JSON**. Implement `SnapshotVersion` / `MarshalSnapshot` / `UnmarshalSnapshot`. Repository loads latest snapshot then remaining events. `snapshot.Snapshotter` can batch in the background.
 
 ---
 
 ## 14. Unique keys and optimistic concurrency
 
-- OCC: `ExpectedVersion` must match stream tip → else `ErrOptimisticConcurrency`  
-- Unique keys: `UniqueKeys()` map `scope → value` (bank scopes owner by tenant partition) → `ErrUniqueKeyViolation`
+- OCC: `ExpectedVersion` must match stream tip → else `ErrOptimisticConcurrency`
+- Unique keys: `UniqueKeys` map `scope → value` (bank scopes owner by tenant partition) → `ErrUniqueKeyViolation`
 
 ---
 
@@ -261,13 +261,13 @@ Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; 
 
 ## 16. AuthZ
 
-`security.Authorizer` via `WithAuthorizer` or middleware. Built-ins: `AllowAll`, `DenyByDefault`. Check `errors.Is(err, security.ErrDenied)`. Hash chain yes; **no** event signatures (Q3).
+`security.Authorizer` via `WithAuthorizer` or middleware. Built-ins: `AllowAll`, `DenyByDefault`. Check `errors.Is(err, security.ErrDenied)`. Hash chain yes; **no** event signatures.
 
 ---
 
 ## 17. Tenancy
 
-Shared schema + `tenant_id` ([Q4](#27-locked-decisions-q1q10)). `tenancy.WithTenant` + middleware copies into `Meta.TenantID`. Helpers: `UniqueScope`, `PartitionKey`, `PartitionKeyHashed`, `MatchAggregateTenant`. No first-class schema-per-tenant / DB-per-tenant.
+Shared schema + `tenant_id`. `tenancy.WithTenant` + middleware copies into `Meta.TenantID`. Helpers: `UniqueScope`, `PartitionKey`, `PartitionKeyHashed`, `MatchAggregateTenant`. No first-class schema-per-tenant / DB-per-tenant.
 
 See also: [Tenant vs User](#gloss-tenant), [Idempotency](#gloss-idempotency), [Ledger projection](#gloss-ledger-projection), [SyncInTxn](#gloss-syncintxn), [AuthZ](#gloss-authz), [Unique keys](#gloss-unique-keys).
 
@@ -285,7 +285,7 @@ When integrating the **Circle API** for a **multi-merchant** payments / wallet p
 | Payment, Wallet, Settlement, … | **[Aggregate](#gloss-aggregate)** (per-stream OCC) |
 | Merchant balance, reconciliation, withdrawable | **[Ledger projection](#gloss-ledger-projection)** via [SyncInTxn](#gloss-syncintxn), filtered by `tenant_id` |
 
-**Do not** make each C-end user a tenant. End users may appear as `buyer_id` in event payloads, or as `UserID` when they issue commands; isolation and billing stay **Merchant = Tenant**. This matches locked Q4 (shared schema + `tenant_id`): one events table, every row tagged — not one schema per merchant.
+**Do not** make each C-end user a tenant. End users may appear as `buyer_id` in event payloads, or as `UserID` when they issue commands; isolation and billing stay **Merchant = Tenant**. This matches the locked multi-tenancy decision (shared schema + `tenant_id`): one events table, every row tagged — not one schema per merchant.
 
 **App-level mapping (sketch)**
 
@@ -337,7 +337,7 @@ Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/go-sequent/go-
 
 **What it does not do:** Replace the business audit trail; auto-instrument HTTP/gRPC, projectors, or the outbox poller; ship an exporter; own the Provider (the app does). `RecordEvents` exists but is **not** auto-hooked on append (see below).
 
-**Locked decisions:** Observability hooks only. Event integrity is **hash chain** (Q3); delivery shape remains a **pure library** (Q7) — export stays in the host process.
+**Locked decisions:** Observability hooks only. Event integrity is **hash chain** ; delivery shape remains a **pure library** — export stays in the host process.
 
 ### Wiring
 
@@ -357,11 +357,11 @@ Package: `obs` (`obs/otel.go`). Instrumentation name: `github.com/go-sequent/go-
 ```go
 // App-side: otel.SetTracerProvider / SetMeterProvider + your exporter
 inst, err := obs.New(obs.Config{
-    OutboxDepth: ob.Depth, // optional; nil skips sequent.outbox.depth
+ OutboxDepth: ob.Depth, // optional; nil skips sequent.outbox.depth
 })
 app := sequent.New(sequent.Config{},
-    sequent.WithObs(inst),
-    sequent.WithStore(store, tx),
+ sequent.WithObs(inst),
+ sequent.WithStore(store, tx),
 )
 ```
 
@@ -394,12 +394,12 @@ Public API: `Instruments`, `Config`, `New`, `StartCommand`, `RecordCommand`, `Re
 `store.Migrate` applies `001`–`004`. Partition SQL under `docs/ops/` is example-only.
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent outbox -dsn "$DSN" [-once]
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector name -stage prepare -tables t1
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent outbox -dsn "$DSN" [-once]
+go run./cmd/go-sequent replay -dsn "$DSN" -projector name -stage prepare -tables t1
 ```
 
-Full event replay needs an app-wired `projector/replay.Pipeline`. GDPR: `tombstone` (tombstone-only, Q5). `crypto.PayloadProtector` is optional field encryption — not crypto-shredding.
+Full event replay needs an app-wired `projector/replay.Pipeline`. GDPR: `tombstone` (tombstone-only). `crypto.PayloadProtector` is optional field encryption — not crypto-shredding.
 
 ---
 
@@ -407,10 +407,10 @@ Full event replay needs an app-wired `projector/replay.Pipeline`. GDPR: `tombsto
 
 ```go
 app := sequent.New(sequent.Config{PublisherMode: sequent.SyncInTxn},
-    sequent.WithStore(store, tx),
-    sequent.WithAuthorizer(...),
-    sequent.WithIdempotency(store, false),
-    sequent.WithObs(inst),
+ sequent.WithStore(store, tx),
+ sequent.WithAuthorizer(...),
+ sequent.WithIdempotency(store, false),
+ sequent.WithObs(inst),
 )
 app.RegisterAggregate(...)
 app.RegisterHandler(...)
@@ -433,8 +433,8 @@ Bank helper: `bank.NewDemoApp` with `StoreFactory` so the store shares the app e
 Demo: open / deposit / withdraw / transfer, tenant unique owner, decimal money, AuthZ + idempotency. See `bankpg/README.md` for SQL wiring and gaps (no RLS product, optional Outbox).
 
 ```bash
-go test ./examples/bank/ ./examples/bankpg/ -count=1
-GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
+go test./examples/bank/./examples/bankpg/ -count=1
+GO_SEQUENT_PG_DSN='postgres://…' go test./examples/bankpg/ -run TestIT_BankPG
 ```
 
 ---
@@ -449,7 +449,7 @@ GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 | OCC | stale `ExpectedVersion` |
 | Postgres | `GO_SEQUENT_PG_DSN` or skip |
 
-`go test ./...` must pass **without** DSN. Benches: [bench.md](./bench.md).
+`go test./...` must pass **without** DSN. Benches: [bench.md](./bench.md).
 
 ---
 
@@ -474,10 +474,10 @@ GO_SEQUENT_PG_DSN='postgres://…' go test ./examples/bankpg/ -run TestIT_BankPG
 | AggregateObserver | Not productized |
 | ValueObject type system | Plain Go + `types.Money` |
 | Default message bus / LISTEN/NOTIFY | Optional outbox **polling** |
-| Event hash-chain | **Implemented** (Q3) |
-| Event signatures | **Out of scope** (Q3) |
-| Import Sequent DB | **Forbidden** (Q9) |
-| HTTP/gRPC stubs | **None** (Q7) |
+| Event hash-chain | **Implemented** |
+| Event signatures | **Out of scope** |
+| Import Sequent DB | **Forbidden** |
+| HTTP/gRPC stubs | **None** |
 
 Phases: 1 core loop → 2 snapshots/upcast/workflow/replay skeleton → 3 idempotency/AuthZ/outbox/tenancy/tombstone/obs → 4 docs/benches → bank example + ITs.
 
@@ -485,136 +485,136 @@ Phases: 1 core loop → 2 snapshots/upcast/workflow/replay skeleton → 3 idempo
 
 ## 26. Glossary
 
-Definitions match **current go-sequent behavior** and locked decisions (Q1–Q10). Chinese primary: [名词释义](./guide.zh.md#26-名词释义). Stable anchors (`#gloss-…`) are shared across EN/ZH where linked from §1.
+Definitions match **current go-sequent behavior** and locked product decisions. Chinese primary: [名词释义](./guide.zh.md#26-名词释义). Stable anchors (`#gloss-…`) are shared across EN/ZH where linked from §1.
 
 <a id="gloss-ledger-projection"></a>
 
-**Ledger projection（账本投影）**  
-Read model for balances/ledgers. Q1 requires updates **inside the write transaction** (`SyncInTxn`) so [read-your-writes](#gloss-read-your-writes) holds after commit. Bank `BalanceProjector` is the demo (in-memory; production should persist via SQL).
+**Ledger projection（账本投影）**
+Read model for balances/ledgers. updates **inside the write transaction** (`SyncInTxn`) so [read-your-writes](#gloss-read-your-writes) holds after commit. Bank `BalanceProjector` is the demo (in-memory; production should persist via SQL).
 
 <a id="gloss-projector"></a>
 
-**Projector / projection**  
+**Projector / projection**
 A `publish.Handler` (optionally with `ManagedTables`) that updates read models. Registered on `SyncInTxn`, invoked after Append and before commit; failure rolls back the write txn. Rebuild uses `PublishProjectorsOnly` (skips Workflows).
 
 <a id="gloss-aggregate"></a>
 
-**AggregateRoot / aggregate**  
+**AggregateRoot / aggregate**
 Consistency boundary. Embed `aggregate.Base`; mutate state only in appliers; command methods `Apply` events after validation. Loaded/committed via Repository + UoW; never share across goroutines.
 
 <a id="gloss-command"></a>
 
-**Command**  
+**Command**
 Intent to change the system. Has `CommandType`, optional `AggregateID`, `Meta`; may `Validate`. Enters via `CommandService.Execute` (middleware / AuthZ / handler).
 
 <a id="gloss-event"></a>
 
-**Event**  
+**Event**
 Past-tense fact with type name and envelope (aggregate id, sequence, time). Stored then drives Projectors/Workflows; decoded via `event.Registry`.
 
 <a id="gloss-eventstore"></a>
 
-**EventStore**  
+**EventStore**
 Persists command records and aggregate streams with OCC, unique-key checks, and a per-aggregate [hash chain](#gloss-hash-chain). Implementations: memory, postgres. Apps usually go through the Repository.
 
 <a id="gloss-hash-chain"></a>
 
-**Hash chain**  
-Q3 integrity: each event stores `prev_hash` + `event_hash` (SHA-256 over canonical fields in `eventstore/hashchain`). Chain is **per aggregate stream**; genesis prev is 32 zero bytes. Verified on load / `VerifyChain`. Detects tampering; **not** event signatures. Adds write-path and verify cost.
+**Hash chain**
+ integrity: each event stores `prev_hash` + `event_hash` (SHA-256 over canonical fields in `eventstore/hashchain`). Chain is **per aggregate stream**; genesis prev is 32 zero bytes. Verified on load / `VerifyChain`. Detects tampering; **not** event signatures. Adds write-path and verify cost.
 
 <a id="gloss-uow"></a>
 
-**UnitOfWork (context-scoped)**  
+**UnitOfWork (context-scoped)**
 Per-`Execute` identity map on `context`. `Add`/`Load` reuse one instance; `Commit` collects uncommitted events in load order. Never share across goroutines.
 
 <a id="gloss-occ"></a>
 
-**Optimistic concurrency (OCC)**  
+**Optimistic concurrency (OCC)**
 Append requires `ExpectedVersion` = stream tip; else `ErrOptimisticConcurrency`. `obs` can count conflict storms.
 
 <a id="gloss-unique-keys"></a>
 
-**Unique keys**  
-`UniqueKeys()` map `scope → value` (e.g. tenant-scoped owner). DB unique violation → `ErrUniqueKeyViolation`.
+**Unique keys**
+`UniqueKeys` map `scope → value` (e.g. tenant-scoped owner). DB unique violation → `ErrUniqueKeyViolation`.
 
 <a id="gloss-idempotency"></a>
 
-**Idempotency**  
+**Idempotency**
 Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: memory / postgres.
 
 <a id="gloss-tenant"></a>
 
-**Tenant vs User**  
-`Meta.TenantID` is the multi-tenant isolation unit (Q4: shared schema + `tenant_id`). `Meta.UserID` is the actor — **do not** trust client UserID alone; use `AuthContext` + AuthZ. `tenancy` middleware can copy tenant from ctx. For Circle multi-merchant: **Tenant = onboarded merchant**, User = buyer/operator under that merchant — see [§17 business example](#business-example-circle-multi-merchant); **do not** assign one TenantID per C-end user.
+**Tenant vs User**
+`Meta.TenantID` is the multi-tenant isolation unit. `Meta.UserID` is the actor — **do not** trust client UserID alone; use `AuthContext` + AuthZ. `tenancy` middleware can copy tenant from ctx. For Circle multi-merchant: **Tenant = onboarded merchant**, User = buyer/operator under that merchant — see [§17 business example](#business-example-circle-multi-merchant); **do not** assign one TenantID per C-end user.
 
 <a id="gloss-outbox"></a>
 
-**Outbox**  
-Transactional outbound message rows drained by polling (Q6). Ledger projectors stay on SyncInTxn; outbox is for async/external side effects.
+**Outbox**
+Transactional outbound message rows drained by polling. Ledger projectors stay on SyncInTxn; outbox is for async/external side effects.
 
 <a id="gloss-aftercommit"></a>
 
-**AfterCommit**  
+**AfterCommit**
 Hooks via `workflow.RegisterAfterCommit`, run only after a **successful** commit (notifications, non-ledger side effects). Failure does not undo committed events.
 
 <a id="gloss-workflow"></a>
 
-**Workflow**  
+**Workflow**
 Event orchestration handler (`RegisterWorkflow`). May run SyncInTxn but is **excluded** from projection rebuild. May register AfterCommit.
 
 <a id="gloss-snapshot"></a>
 
-**Snapshot**  
-JSON fold of aggregate state (Q8) to speed loads: snapshot + later events. `snapshot.Snapshotter` can batch in the background.
+**Snapshot**
+JSON fold of aggregate state to speed loads: snapshot + later events. `snapshot.Snapshotter` can batch in the background.
 
 <a id="gloss-upcaster"></a>
 
-**Upcaster**  
-Transforms old event payloads on load (`event/upcast`). **Not** for importing Ruby Sequent DBs (Q9).
+**Upcaster**
+Transforms old event payloads on load (`event/upcast`). **Not** for importing Ruby Sequent DBs.
 
 <a id="gloss-syncintxn"></a>
 
-**SyncInTxn**  
-Default publish mode: projectors (then workflows) run inside the write txn. Required for ledger projections (Q1).
+**SyncInTxn**
+Default publish mode: projectors (then workflows) run inside the write txn. Required for ledger projections.
 
 <a id="gloss-compensating"></a>
 
-**Compensating event**  
+**Compensating event**
 A new domain event that offsets/corrects prior facts without rewriting history. Used with tombstones for GDPR-style scrubbing in projections.
 
 <a id="gloss-tombstone"></a>
 
-**Tombstone**  
-Q5 strategy: emit markers such as `gdpr.SubjectTombstoned`; projectors scrub or stop serving PII. Product path is **not** crypto-shredding.
+**Tombstone**
+Strategy: emit markers such as `gdpr.SubjectTombstoned`; projectors scrub or stop serving PII. Product path is **not** crypto-shredding.
 
 <a id="gloss-read-your-writes"></a>
 
-**Read-your-writes**  
+**Read-your-writes**
 After a successful write, the same client’s read should see that update. Ledger SyncInTxn achieves this: balance projection updates in the same txn before commit returns.
 
 <a id="gloss-authz"></a>
 
-**AuthZ**  
-Authorization at the command boundary (`security.Authorizer` / `WithAuthorizer`). Denials → `ErrDenied`. Separate from AuthN; hash chain in EventStore; no event signing (Q3).
+**AuthZ**
+Authorization at the command boundary (`security.Authorizer` / `WithAuthorizer`). Denials → `ErrDenied`. Separate from AuthN; hash chain in EventStore; no event signing.
 
 <a id="gloss-meta"></a>
 
-**Meta (command metadata)**  
+**Meta (command metadata)**
 `command.Meta`: CommandID, TenantID, UserID, IdempotencyKey, Correlation/Causation, Source, AuthContext, …. `AuditOf` builds an audit snapshot.
 
 <a id="gloss-partition-key"></a>
 
-**partition_key**  
+**partition_key**
 Partition hint on aggregates/streams (often from `tenancy.PartitionKey`), for physical partitioning or unique-key scoping inside a shared schema — not schema-per-tenant.
 
 <a id="gloss-money"></a>
 
-**Money (decimal)**  
-`types.Money`: decimal amount + currency; JSON amount is a string. Ban `float64` (Q2).
+**Money (decimal)**
+`types.Money`: decimal amount + currency; JSON amount is a string. Ban `float64`.
 
 <a id="gloss-obs"></a>
 
-**obs / OpenTelemetry**  
+**obs / OpenTelemetry**
 Optional write-path telemetry (latency, outcome, OCC, optional outbox depth). **Not** the business audit source; app owns Providers. See [§19](#19-opentelemetry-obs).
 
 ---

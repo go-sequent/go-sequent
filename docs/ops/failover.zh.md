@@ -10,8 +10,8 @@
 
 | 路径 | 建议 |
 |------|------|
-| Command + SyncInTxn 投影（Q1） | 始终打**主库**（账本读己之写） |
-| 异步 Outbox 消费（Q6） | 非账本视图可用延迟可容忍的副本 |
+| Command + SyncInTxn 投影 | 始终打**主库**（账本读己之写） |
+| 异步 Outbox 消费 | 非账本视图可用延迟可容忍的副本 |
 | Replay / 重建 | 优先主库或专用重建角色 |
 
 前置：Patroni / Cloud SQL HA / RDS Multi-AZ + PgBouncer（或云侧连接池）。
@@ -19,7 +19,7 @@
 ## 切换检查清单
 
 1. 判定主库失联。
-2. 提升同步备库；确认新主 `pg_is_in_recovery() = false`。
+2. 提升同步备库；确认新主 `pg_is_in_recovery = false`。
 3. 切换连接池 / DSN；必要时滚动重启应用。
 4. 验证写入：一次 append + SyncInTxn 投影。
 5. 确认旧主不再接受写入（fencing）。

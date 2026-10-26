@@ -2,18 +2,18 @@
 
 Mirrors Sequent 8: **prepare → replay → catchup → optimize → golive** (optional **abort**).
 
-Ledger / balance projectors that must stay strongly consistent should remain **SyncInTxn** on the live path (Q1). Rebuild is for disposable read models.
+Ledger / balance projectors that must stay strongly consistent should remain **SyncInTxn** on the live path. Rebuild is for disposable read models.
 
 ## Library API
 
 ```go
 pipe := &replay.Pipeline{
-    Name: "balances",
-    Source: eventSource,          // StreamAll
-    Publisher: syncInTxnWithProjectorsOnly,
-    Schema: &replay.PostgresSchema{Pool: pool}, // or NoopSchema{}
-    State: replay.NewMemoryState(), // or DB-backed in your app
-    ManagedTables: []string{"account_balances"},
+ Name: "balances",
+ Source: eventSource, // StreamAll
+ Publisher: syncInTxnWithProjectorsOnly,
+ Schema: &replay.PostgresSchema{Pool: pool}, // or NoopSchema{}
+ State: replay.NewMemoryState, // or DB-backed in your app
+ ManagedTables: []string{"account_balances"},
 }
 err := pipe.RunAll(ctx)
 ```
@@ -23,9 +23,9 @@ err := pipe.RunAll(ctx)
 ## CLI (schema stages)
 
 ```bash
-go run ./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
-go run ./cmd/go-sequent replay -dsn "$DSN" -projector balances \
-  -stage prepare -tables account_balances
+go run./cmd/go-sequent migrate -dsn "$GO_SEQUENT_PG_DSN"
+go run./cmd/go-sequent replay -dsn "$DSN" -projector balances \
+ -stage prepare -tables account_balances
 # optimize | golive | abort likewise
 ```
 
