@@ -33,8 +33,9 @@ ALTER TABLE aggregates
     ADD COLUMN IF NOT EXISTS snapshot_threshold INTEGER NOT NULL DEFAULT 100;
 
 -- Projection rebuild bookkeeping (prepare → replay → catchup → golive)
+CREATE SEQUENCE IF NOT EXISTS projector_replay_states_id_seq;
 CREATE TABLE IF NOT EXISTS projector_replay_states (
-    id              BIGSERIAL PRIMARY KEY,
+    id              BIGINT PRIMARY KEY DEFAULT nextval('projector_replay_states_id_seq'),
     projector_name  TEXT NOT NULL,
     replay_schema   TEXT NOT NULL,
     view_schema     TEXT NOT NULL DEFAULT 'public',
@@ -43,10 +44,12 @@ CREATE TABLE IF NOT EXISTS projector_replay_states (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER SEQUENCE projector_replay_states_id_seq OWNED BY projector_replay_states.id;
 
--- Optional outbox stub for AfterCommit / Phase 3 polling drain (Q6)
+-- Optional outbox stub for AfterCommit / polling drain
+CREATE SEQUENCE IF NOT EXISTS outbox_id_seq;
 CREATE TABLE IF NOT EXISTS outbox (
-    id           BIGSERIAL PRIMARY KEY,
+    id           BIGINT PRIMARY KEY DEFAULT nextval('outbox_id_seq'),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     topic        TEXT NOT NULL,
@@ -55,6 +58,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     locked_until TIMESTAMPTZ,
     processed_at TIMESTAMPTZ
 );
+ALTER SEQUENCE outbox_id_seq OWNED BY outbox.id;
 
 CREATE INDEX IF NOT EXISTS outbox_available_idx
     ON outbox (available_at)
