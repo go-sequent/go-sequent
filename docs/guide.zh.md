@@ -22,6 +22,7 @@
 6. [CommandHandler](#6-commandhandler)
 7. [AggregateRepository 与 UnitOfWork](#7-aggregaterepository-与-unitofwork)
 8. [CommandService 与中间件](#8-commandservice-与中间件)
+   - [写路径一致性：UoW、OCC 与 Idempotency](#写路径一致性uowocc-与-idempotency)
 9. [EventStore（memory / postgres）](#9-eventstorememory--postgres)
 10. [Publisher：SyncInTxn 与 Outbox](#10-publishersyncintxn-与-outbox)
 11. [Projector](#11-projector)
@@ -220,18 +221,12 @@ func (h *Handler) Handle(ctx context.Context, cmd command.Command) error {
 
 ## 7. AggregateRepository 与 UnitOfWork
 
-包：`aggregate`
+包：`aggregate`。UoW 与 OCC / 幂等如何分工见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。
 
-**UnitOfWork** 是单次请求 / 命令批的身份映射，挂在 `context` 上（**禁止跨 goroutine 共享**）：
-
-- `CommandService.Execute` 在事务内创建 UoW，并 `WithUnitOfWork`
-- `Repo.Add` / `Repo.Load` 要求 ctx 里已有 UoW
-- `Load` 命中 identity map 时复用同一实例
-- `Commit` 按 **加载 / 注册顺序** 收集未提交事件 → `Store.Append` → `Publisher.Publish` → `MarkCommitted`
-
-这与 Sequent「按 AggregateRepository 加载顺序发布事件」的意图一致。
-
-工厂用 `RegisterFactory(aggregateType, func(id) Root)` 注册，供 Load 与快照重建。
+- `Execute` 在事务内创建 UoW（`context` 作用域，勿跨 goroutine）
+- `Repo.Add` / `Repo.Load` 要求 ctx 已有 UoW；`Load` 命中 identity map 则复用
+- `Commit`：按加载顺序收集未提交事件 → `Store.Append` → `Publisher.Publish` → `MarkCommitted`
+- 工厂：`RegisterFactory(aggregateType, func(id) Root)`，供 Load / 快照重建
 
 ---
 
@@ -258,6 +253,97 @@ Bank `NewDemoApp` 的常见顺序：
 2. `idempotency.Middleware`——依赖已有 TenantID
 
 **Filters**（如 `security.Filter`）在 terminal 内、`Validate` 之前执行。可选观测见 [§19 OpenTelemetry](#19-opentelemetryobs)：挂在 `Service.Obs` 上，**不是** Middleware。
+
+写路径上 UoW、OCC、幂等如何叠在一起，见下一节。
+
+---
+
+<a id="写路径一致性uowocc-与-idempotency"></a>
+<a id="write-path-consistency-uow-occ-and-idempotency"></a>
+
+## 写路径一致性：UoW、OCC 与 Idempotency
+
+一次成功的 `CommandService.Execute` 里，这三层解决不同问题：进程内身份与事件收集、流版本冲突、以及「同键重复提交」。它们互补，不能互相替代。
+
+### 各自做什么
+
+| 机制 | 位置 | 作用 |
+|------|------|------|
+| UnitOfWork (UoW) | `aggregate`，挂在 `Execute` 的 `context` | 单次 `Execute` 的聚合 identity map；`Add`/`Load` 复用同一实例；`Commit` 按加载顺序收集 `UncommittedEvents` |
+| OCC | `eventstore.StreamAppend.ExpectedVersion` | 追加时要求流尖端等于期望版本，否则 `ErrOptimisticConcurrency`。Repository 写入 `ExpectedVersion: agg.Version()` |
+| Idempotency | `idempotency` Middleware / `sequent.WithIdempotency` | 键空间 `(TenantID, IdempotencyKey)`。成功后再用同键：默认短路成功；`Strict` 时 `ErrReplay` |
+
+UoW 不跨 `Execute`、也不跨 goroutine。OCC 管的是**同一聚合流**的并发追加，不管 HTTP 重试是否带同一业务键。Idempotency 管的是**带键的命令重放**，不管两个客户端同时改同一账户时的版本冲突。
+
+### 分层对照
+
+| 层 | 挡住什么 | 挡不住什么 |
+|----|----------|------------|
+| UoW | 同一次 `Execute` 里重复 `Load` 出两份可变状态；多聚合提交顺序混乱 | 两个 `Execute` 并行；进程崩溃后的重试 |
+| OCC | 基于过期 `Version()` 的追加（双花写、丢失更新） | 「用户点了两次支付」且两次都带着新的空闲版本 |
+| Idempotency | 同 `(tenant, key)` 的成功重放（默认 no-op） | 未设 `IdempotencyKey`；键不同的重复业务意图；流上的 OCC 冲突本身 |
+
+典型支付：网关用稳定的 `IdempotencyKey`（例如商户订单号）防重放；账本仍靠 OCC 处理并发扣款。多商户时键仍在租户内唯一，见 [§17 Circle 示例](#业务示例circle-多商户)。
+
+### 用法（与当前 API 对齐）
+
+安装（tenancy 在幂等之前，以便写入 `Meta.TenantID`）：
+
+```go
+import (
+    "github.com/go-sequent/go-sequent/idempotency"
+    "github.com/go-sequent/go-sequent/sequent"
+    "github.com/go-sequent/go-sequent/tenancy"
+)
+
+app := sequent.New(sequent.Config{},
+    sequent.WithIdempotency(idempotency.NewMemory() /* 或 NewPostgres(pool) */, false),
+)
+app.Service.Middleware = append(
+    []command.Middleware{tenancy.Middleware},
+    app.Service.Middleware...,
+)
+```
+
+Handler 只通过 Repository 接触聚合；不要自己 `EventStore.Append`：
+
+```go
+func (h *Handler) Handle(ctx context.Context, cmd command.Command) error {
+    c := cmd.(*Deposit)
+    acc, err := h.Repo.Load(ctx, AggregateAccount, c.AccountID)
+    if err != nil {
+        return err
+    }
+    return acc.(*Account).Deposit(c.Amount) // 内部 Apply → 未提交事件进 UoW
+}
+```
+
+`Execute` 末尾 `Repo.Commit` 会把 `ExpectedVersion` 设为 `agg.Version()`（已提交尖端）。并发下若尖端已变：
+
+```go
+err := app.Service.Execute(ctx, cmd)
+if errors.Is(err, eventstore.ErrOptimisticConcurrency) {
+    // 重新 Execute / 重新 Load；不要假设余额仍是旧读数
+}
+```
+
+幂等键（需同时有 TenantID）：
+
+```go
+ctx = tenancy.WithTenant(ctx, tenantID)
+cmd.Meta().IdempotencyKey = "merchant-order:42"
+err := app.Service.Execute(ctx, cmd)
+// 成功后再用同一 key：默认再返回 nil（no-op）；Strict 时为 idempotency.ErrReplay
+```
+
+Postgres 上幂等表与 `commands` 同行事务；`idempotency.Postgres` 会加入 `WithinTx` 中的连接，以便看到未提交的 `command_id`。
+
+### 相关章节
+
+- [§7 AggregateRepository 与 UnitOfWork](#7-aggregaterepository-与-unitofwork)
+- [§14 Unique keys 与乐观并发](#14-unique-keys-与乐观并发)
+- [§15 Idempotency](#15-idempotency)
+- 名词：[UoW](#gloss-uow)、[OCC](#gloss-occ)、[幂等](#gloss-idempotency)
 
 ---
 
@@ -382,23 +468,13 @@ UnmarshalSnapshot(json.RawMessage) error
 
 ## 14. Unique keys 与乐观并发
 
-- **乐观并发（OCC）：** `ExpectedVersion` 等于提交前已提交序号；冲突返回 `ErrOptimisticConcurrency`。
-- **唯一键：** 聚合 `UniqueKeys` 返回 `scope → value`。Bank 把 owner 限制在 `tenant:<pk>:bank.Account.owner`。冲突 → `ErrUniqueKeyViolation`。
-
-`tenancy.UniqueScope` / `PartitionKey` 可帮助构造租户作用域。
+OCC 与 UoW / 幂等的关系见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。要点：`ExpectedVersion` 须等于流尖端，否则 `ErrOptimisticConcurrency`。聚合 `UniqueKeys()` 为 `scope → value`（Bank 用 `tenancy.UniqueScope` 限制 owner）；冲突 → `ErrUniqueKeyViolation`。
 
 ---
 
 ## 15. Idempotency
 
-包：`idempotency`（幂等）
-
-- 键空间：`(TenantID, IdempotencyKey)`
-- 成功后再提交同键：默认 **短路成功**（no-op）；`Strict=true` 时返回 `ErrReplay`
-- 实现：`NewMemory` / `NewPostgres(pool)`
-- 安装：`sequent.WithIdempotency`，或手动挂 Middleware
-
-设置了 `IdempotencyKey` 时 **必须** 有 `TenantID`（可先跑 tenancy Middleware）。
+包：`idempotency`。概念与接线见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。键空间 `(TenantID, IdempotencyKey)`；`sequent.WithIdempotency` 或手动 Middleware；实现 `NewMemory` / `NewPostgres`。设了 `IdempotencyKey` 时须有 `TenantID`。
 
 ---
 
@@ -704,13 +780,13 @@ go test./... # 无 DSN 必须绿
 
 <a id="gloss-uow"></a>
 
-**UnitOfWork / UoW（上下文作用域）**
-单次 `Execute` 事务内、挂在 `context` 上的聚合身份映射。`Add` / `Load` 复用同一实例；`Commit` 按加载顺序收集未提交事件。禁止跨 goroutine 共享。
+**UnitOfWork / UoW（上下文作用域）**  
+单次 `Execute` 事务内、挂在 `context` 上的聚合身份映射。`Add` / `Load` 复用同一实例；`Commit` 按加载顺序收集未提交事件。禁止跨 goroutine 共享。与 OCC / 幂等的分工见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。
 
 <a id="gloss-occ"></a>
 
-**乐观并发（OCC）**
-追加时 `ExpectedVersion` 必须等于流尖端；否则返回 `ErrOptimisticConcurrency`。`obs` 可统计冲突风暴。
+**乐观并发（OCC）**  
+追加时 `ExpectedVersion` 必须等于流尖端；否则返回 `ErrOptimisticConcurrency`。`obs` 可统计冲突风暴。分层说明见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。
 
 <a id="gloss-unique-keys"></a>
 
@@ -719,8 +795,8 @@ go test./... # 无 DSN 必须绿
 
 <a id="gloss-idempotency"></a>
 
-**幂等（Idempotency）**
-键空间为 `(TenantID, IdempotencyKey)`。成功后再用同键重试，默认短路成功；`Strict` 时返回 `ErrReplay`。实现：memory / postgres。
+**幂等（Idempotency）**  
+键空间为 `(TenantID, IdempotencyKey)`。成功后再用同键重试，默认短路成功；`Strict` 时返回 `ErrReplay`。实现：memory / postgres。接线与边界见 [写路径一致性](#写路径一致性uowocc-与-idempotency)。
 
 <a id="gloss-tenant"></a>
 

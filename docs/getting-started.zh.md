@@ -53,7 +53,9 @@ go get github.com/go-sequent/go-sequent@latest
 
 ## 租户
 
-共享 schema + `tenant_id`。多商户支付（如 Circle）时 **Tenant = 商户**，不是 C 端买家——见 [指南 §17 业务示例：Circle 多商户](./guide.zh.md#业务示例circle-多商户)（[名词：租户](./guide.zh.md#gloss-tenant)）。
+共享 schema + `tenant_id`。多商户支付（如 Circle）时 Tenant = 商户，不是 C 端买家——见 [指南 §17](./guide.zh.md#业务示例circle-多商户)（[名词：租户](./guide.zh.md#gloss-tenant)）。
+
+写路径上 UoW、OCC、幂等如何叠用：见 [写路径一致性](./guide.zh.md#写路径一致性uowocc-与-idempotency)。
 
 ## 金额
 

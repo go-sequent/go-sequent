@@ -20,6 +20,7 @@ Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/g
 6. [CommandHandler](#6-commandhandler)
 7. [AggregateRepository and UnitOfWork](#7-aggregaterepository-and-unitofwork)
 8. [CommandService and middleware](#8-commandservice-and-middleware)
+   - [Write-path consistency: UoW, OCC, and Idempotency](#write-path-consistency-uow-occ-and-idempotency)
 9. [EventStore (memory / postgres)](#9-eventstore-memory--postgres)
 10. [Publisher: SyncInTxn and outbox](#10-publisher-syncintxn-and-outbox)
 11. [Projector](#11-projector)
@@ -160,14 +161,12 @@ Use `Repo.Add` / `Repo.Load` only — do not call `EventStore.Append` from handl
 
 ## 7. AggregateRepository and UnitOfWork
 
-**UnitOfWork** is a per-request identity map on `context` (**never** share across goroutines).
+Package `aggregate`. How UoW fits with OCC and idempotency: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency).
 
-- `Execute` creates UoW inside the txn
-- `Add` / `Load` require UoW in ctx
-- `Load` reuses the identity-map instance
-- `Commit` appends in **load/registration order**, publishes, then `MarkCommitted`
-
-Factories: `RegisterFactory(aggregateType, func(id) Root)`.
+- `Execute` creates a context-scoped UoW (do not share across goroutines)
+- `Repo.Add` / `Repo.Load` require UoW; `Load` reuses the identity-map instance
+- `Commit` collects uncommitted events in load order → `Store.Append` → `Publisher.Publish` → `MarkCommitted`
+- Factories: `RegisterFactory(aggregateType, func(id) Root)` for Load / snapshot rebuild
 
 ---
 
@@ -180,6 +179,97 @@ svc.Execute(ctx, cmd1, cmd2,...) // one txn, one UoW
 Flow: AfterCommit bag → `WithinTx` → UoW → for each command: Middleware → Filters → Validate → Dispatch → Commit → after success, AfterCommit.
 
 `Chain` runs **outer-first** (index 0 first). Bank demo order: **tenancy before idempotency** so `Meta.TenantID` is set. Optional observability: see [§19 OpenTelemetry (`obs`)](#19-opentelemetry-obs) (field on `Service.Obs`, **not** middleware).
+
+How UoW, OCC, and idempotency stack on the write path is in the next section.
+
+---
+
+<a id="write-path-consistency-uow-occ-and-idempotency"></a>
+<a id="写路径一致性uowocc-与-idempotency"></a>
+
+## Write-path consistency: UoW, OCC, and Idempotency
+
+Inside one successful `CommandService.Execute`, these three layers answer different questions: in-process identity and event collection, stream version conflicts, and “same-key submit again.” They complement each other; none replaces the others.
+
+### What each does
+
+| Mechanism | Where | Role |
+|-----------|--------|------|
+| UnitOfWork (UoW) | `aggregate`, on `Execute`’s `context` | Per-`Execute` identity map; `Add`/`Load` reuse one instance; `Commit` collects `UncommittedEvents` in load order |
+| OCC | `eventstore.StreamAppend.ExpectedVersion` | Append requires stream tip == expected version, else `ErrOptimisticConcurrency`. Repository sets `ExpectedVersion: agg.Version()` |
+| Idempotency | `idempotency` middleware / `sequent.WithIdempotency` | Key space `(TenantID, IdempotencyKey)`. After success, same key → no-op by default; `Strict` → `ErrReplay` |
+
+UoW does not span `Execute` calls or goroutines. OCC covers **concurrent appends on one aggregate stream**, not whether an HTTP client reused a business key. Idempotency covers **keyed command replay**, not two actors racing on the same account version.
+
+### How they layer
+
+| Layer | Protects against | Does not cover |
+|-------|------------------|----------------|
+| UoW | Two mutable copies from repeated `Load` in one `Execute`; unordered multi-aggregate commit | Parallel `Execute`s; retries after process crash |
+| OCC | Appends based on a stale `Version()` (lost update) | “User clicked pay twice” when both attempts see a free new version |
+| Idempotency | Successful replay of the same `(tenant, key)` (default no-op) | Missing `IdempotencyKey`; distinct keys for the same business intent; OCC conflicts themselves |
+
+For payments, use a stable `IdempotencyKey` (e.g. merchant order id) against replays; keep OCC for concurrent ledger updates. Keys remain tenant-scoped — see [§17 Circle example](#business-example-circle-multi-merchant).
+
+### Usage (current APIs)
+
+Wire tenancy before idempotency so `Meta.TenantID` is set:
+
+```go
+import (
+    "github.com/go-sequent/go-sequent/idempotency"
+    "github.com/go-sequent/go-sequent/sequent"
+    "github.com/go-sequent/go-sequent/tenancy"
+)
+
+app := sequent.New(sequent.Config{},
+    sequent.WithIdempotency(idempotency.NewMemory() /* or NewPostgres(pool) */, false),
+)
+app.Service.Middleware = append(
+    []command.Middleware{tenancy.Middleware},
+    app.Service.Middleware...,
+)
+```
+
+Handlers touch aggregates only via the Repository — do not call `EventStore.Append` yourself:
+
+```go
+func (h *Handler) Handle(ctx context.Context, cmd command.Command) error {
+    c := cmd.(*Deposit)
+    acc, err := h.Repo.Load(ctx, AggregateAccount, c.AccountID)
+    if err != nil {
+        return err
+    }
+    return acc.(*Account).Deposit(c.Amount) // Apply → uncommitted events on the UoW
+}
+```
+
+`Repo.Commit` at the end of `Execute` sets `ExpectedVersion` to `agg.Version()` (committed tip). If the tip moved:
+
+```go
+err := app.Service.Execute(ctx, cmd)
+if errors.Is(err, eventstore.ErrOptimisticConcurrency) {
+    // re-Execute / Load again; do not assume the old balance read
+}
+```
+
+Idempotency key (requires `TenantID`):
+
+```go
+ctx = tenancy.WithTenant(ctx, tenantID)
+cmd.Meta().IdempotencyKey = "merchant-order:42"
+err := app.Service.Execute(ctx, cmd)
+// same key after success → nil (no-op) by default; Strict → idempotency.ErrReplay
+```
+
+On Postgres, idempotency rows share the write txn; `idempotency.Postgres` joins the `WithinTx` connection so `command_id` FK can see the uncommitted command.
+
+### See also
+
+- [§7 AggregateRepository and UnitOfWork](#7-aggregaterepository-and-unitofwork)
+- [§14 Unique keys and optimistic concurrency](#14-unique-keys-and-optimistic-concurrency)
+- [§15 Idempotency](#15-idempotency)
+- Glossary: [UoW](#gloss-uow), [OCC](#gloss-occ), [Idempotency](#gloss-idempotency)
 
 ---
 
@@ -252,14 +342,13 @@ Runs only after a successful commit. See bank `NotifyWorkflow`.
 
 ## 14. Unique keys and optimistic concurrency
 
-- OCC: `ExpectedVersion` must match stream tip → else `ErrOptimisticConcurrency`
-- Unique keys: `UniqueKeys` map `scope → value` (bank scopes owner by tenant partition) → `ErrUniqueKeyViolation`
+OCC vs UoW / idempotency: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency). `ExpectedVersion` must equal the stream tip or you get `ErrOptimisticConcurrency`. Aggregate `UniqueKeys()` is `scope → value` (bank uses `tenancy.UniqueScope` for owner) → `ErrUniqueKeyViolation` on clash.
 
 ---
 
 ## 15. Idempotency
 
-Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: `NewMemory` / `NewPostgres`. `IdempotencyKey` requires `TenantID`.
+Package `idempotency`. Concepts and wiring: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency). Key space `(TenantID, IdempotencyKey)`; `sequent.WithIdempotency` or middleware; `NewMemory` / `NewPostgres`. `IdempotencyKey` requires `TenantID`.
 
 ---
 
@@ -528,13 +617,13 @@ Persists command records and aggregate streams with OCC, unique-key checks, and 
 
 <a id="gloss-uow"></a>
 
-**UnitOfWork (context-scoped)**
-Per-`Execute` identity map on `context`. `Add`/`Load` reuse one instance; `Commit` collects uncommitted events in load order. Never share across goroutines.
+**UnitOfWork (context-scoped)**  
+Per-`Execute` identity map on `context`. `Add`/`Load` reuse one instance; `Commit` collects uncommitted events in load order. Never share across goroutines. With OCC / idempotency: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency).
 
 <a id="gloss-occ"></a>
 
-**Optimistic concurrency (OCC)**
-Append requires `ExpectedVersion` = stream tip; else `ErrOptimisticConcurrency`. `obs` can count conflict storms.
+**Optimistic concurrency (OCC)**  
+Append requires `ExpectedVersion` = stream tip; else `ErrOptimisticConcurrency`. `obs` can count conflict storms. Layering: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency).
 
 <a id="gloss-unique-keys"></a>
 
@@ -543,8 +632,8 @@ Append requires `ExpectedVersion` = stream tip; else `ErrOptimisticConcurrency`.
 
 <a id="gloss-idempotency"></a>
 
-**Idempotency**
-Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: memory / postgres.
+**Idempotency**  
+Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; `Strict` → `ErrReplay`. Stores: memory / postgres. Wiring and boundaries: [write-path consistency](#write-path-consistency-uow-occ-and-idempotency).
 
 <a id="gloss-tenant"></a>
 
