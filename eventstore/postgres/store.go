@@ -81,20 +81,6 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // SetUpcasters attaches event payload upcasters (v0).
 func (s *Store) SetUpcasters(c *upcast.Chain) { s.upcasters = c }
 
-// Migrate applies Phase 1–3 schema SQL, store_events, hash-chain columns (Q3),
-// and event_json BYTEA (exact bytes for hash verify).
-func (s *Store) Migrate(ctx context.Context) error {
-	for i, sql := range []string{
-		schemaPhase1, schemaPhase2, schemaStoreEvents, schemaPhase3,
-		schemaHashChain, schemaEventJSONBytea,
-	} {
-		if _, err := s.pool.Exec(ctx, sql); err != nil {
-			return fmt.Errorf("postgres: migrate step %d: %w", i+1, err)
-		}
-	}
-	return nil
-}
-
 // TxFromContext returns the WithinTx transaction when present (for SyncInTxn
 // helpers such as idempotency that must see uncommitted commands).
 func TxFromContext(ctx context.Context) (pgx.Tx, bool) {
