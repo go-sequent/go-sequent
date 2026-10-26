@@ -1,10 +1,14 @@
 # go-sequent 框架指南
 
+<p align="center">
+  <img src="./brand/go-sequent-logo-horizontal.jpg" alt="go-sequent" width="360" />
+</p>
+
 > 说明 **已实现** 的 Phase 1–4 与 `examples/bank` 示例。概念命名参考 [Sequent](https://sequent.io/) Reference Guide，但 API 与数据模型均为 Go 独立实现（**永不**导入 Ruby Sequent 数据库）。
 >
 > **术语约定：** 框架 / API 名称以英文为准（如 Command、EventStore、SyncInTxn）；中文多为释义。完整对照见 [§26 名词释义](#26-名词释义)。
 
-模块：`github.com/go-sequent/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC）
+模块：`github.com/go-sequent/go-sequent` · 形态：**纯库**（仓库内无 HTTP/gRPC） · [品牌 / Logo](./brand/)（事件链 / 账本意象；主色 navy + teal）
 
 ---
 

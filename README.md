@@ -1,6 +1,12 @@
 # go-sequent
 
+<p align="center">
+  <img src="docs/brand/go-sequent-logo-horizontal.jpg" alt="go-sequent" width="420" />
+</p>
+
 Go CQRS + Event Sourcing library for financial systems, inspired by [Sequent](https://sequent.io/) (conceptual only — no Ruby DB compatibility).
+
+Brand assets: [docs/brand/](docs/brand/).
 
 **Status:** Phase 4 (production hardening). Private / not open-source.
 

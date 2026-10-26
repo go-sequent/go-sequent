@@ -1,8 +1,12 @@
 # go-sequent Framework Guide
 
+<p align="center">
+  <img src="./brand/go-sequent-logo-horizontal.jpg" alt="go-sequent" width="360" />
+</p>
+
 > Documents **what is implemented** in Phases 1–4 and `examples/bank`. Section names follow the spirit of the [Sequent](https://sequent.io/) Reference Guide; APIs and schemas are Go-native (**never** import a Ruby Sequent database).
 
-Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo)
+Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/gRPC in-repo) · [Brand](./brand/)
 
 ---
 

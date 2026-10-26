@@ -1,6 +1,8 @@
 # 快速开始 — go-sequent（Phase 1–4）
 
-账本闭环：**Command → Aggregate → EventStore → SyncInTxn Projector**，含 Phase 2–3 能力与 Phase 4 生产加固文档/基准。
+<img src="./brand/go-sequent-logo.jpg" alt="go-sequent" width="72" align="right" />
+
+账本闭环：**Command → Aggregate → EventStore → SyncInTxn Projector**，含 Phase 2–3 能力与 Phase 4 生产加固文档/基准。Logo 说明见 [品牌](./brand/)。
 
 **完整参考：** [框架指南（中文）](./guide.zh.md) · [Framework guide (EN)](./guide.md) — AggregateRoot、Command、Event、CommandService、Repository、EventStore、Projector、Workflow、快照等。术语见 [名词释义](./guide.zh.md#26-名词释义)（含 [账本投影](./guide.zh.md#gloss-ledger-projection)）。
 
