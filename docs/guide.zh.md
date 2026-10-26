@@ -26,7 +26,7 @@
 14. [Unique keys 与乐观并发](#14-unique-keys-与乐观并发)
 15. [Idempotency](#15-idempotency)
 16. [AuthZ](#16-authz)
-17. [Tenancy](#17-tenancy)
+17. [Tenancy](#17-tenancy) — [业务示例：Circle 多商户](#业务示例circle-多商户)
 18. [Money（decimal）](#18-moneydecimal)
 19. [OpenTelemetry（obs）](#19-opentelemetryobs) — [作用](#作用)
 20. [Migrations 与 Ops CLI](#20-migrations-与-ops-cli)
@@ -417,7 +417,7 @@ type Authorizer interface {
 
 ## 17. Tenancy
 
-包：`tenancy`（Q4：共享 schema + `tenant_id`）
+包：`tenancy`（[Q4](#27-锁定决策摘要q1q10)：**共享 schema + `tenant_id`**）
 
 ```go
 ctx = tenancy.WithTenant(ctx, tenantID)
@@ -425,6 +425,47 @@ ctx = tenancy.WithTenant(ctx, tenantID)
 ```
 
 辅助函数：`UniqueScope`、`PartitionKey`、`PartitionKeyHashed`、`MatchAggregateTenant`。没有 schema-per-tenant / DB-per-tenant 的一等支持。
+
+术语对照：[租户 / User](#gloss-tenant)、[幂等](#gloss-idempotency)、[账本投影](#gloss-ledger-projection)、[SyncInTxn](#gloss-syncintxn)、[AuthZ](#gloss-authz)、[唯一键](#gloss-unique-keys)。
+
+<a id="业务示例circle-多商户"></a>
+<a id="tenancy-circle-merchants"></a>
+
+### 业务示例：Circle 多商户
+
+在接入 **Circle API**、面向 **多商户（multi-merchant）** 的支付 / 钱包业务时，go-sequent 的租户边界应按 **商户** 划分，而不是按 C 端买家。
+
+| 业务概念 | go-sequent 映射 |
+|----------|-----------------|
+| **Merchant（商户）** | **[Tenant](#gloss-tenant)** → `Meta.TenantID` / 行上 `tenant_id` |
+| 买家 / 操作员 / 后台账号 | **User** → `Meta.UserID`（须经 AuthN；再经 [AuthZ](#gloss-authz)） |
+| Payment、Wallet、Settlement 等 | **[Aggregate](#gloss-aggregate)**（按流 OCC） |
+| 商户余额、对账、可提现额度 | **[账本投影](#gloss-ledger-projection)**，[SyncInTxn](#gloss-syncintxn)，SQL / 读模型按 `tenant_id` 过滤 |
+
+**不要**把每个 C 端用户做成 Tenant。C 端用户可以是事件载荷里的 `buyer_id`，或 `UserID`（当其本人发命令时）；隔离与计费边界始终是 **Merchant = Tenant**。这与锁定的 Q4（共享 schema + `tenant_id`）一致：一张事件表、一行带 `tenant_id`，而不是每商户一个 schema。
+
+**应用侧映射表（示意）**
+
+| 列 | 含义 |
+|----|------|
+| `merchant_id`（业务主键） | 对外商户号 |
+| `tenant_id`（UUID） | 写入 `Meta.TenantID` / 投影过滤 |
+| Circle 侧标识 | 见下方两种配置模式 |
+
+**支付 happy path（草图）**
+
+1. 网关 / BFF 根据 API Key、子域名或 JWT 的 `merchant_id` 解析出 `TenantID`，`tenancy.WithTenant(ctx, tenantID)`；已认证主体写入 `Meta.UserID`（该商户下的买家或操作员）。**不要**用客户端自报的 UserID 单独做授权。
+2. `CommandService.Execute`（例如 `CapturePayment`）：写事务内 [AuthZ](#gloss-authz)（租户作用域）→ Handler 在 Payment / Wallet 聚合上 `Apply` 领域事件（载荷可含 Circle `payment_id` / `transfer_id`）→ [EventStore](#gloss-eventstore) Append（[幂等](#gloss-idempotency) `(tenant_id, key)`；[唯一键](#gloss-unique-keys) 如 `tenancy.UniqueScope(tenantID, "merchant_order")`）→ [账本投影](#gloss-ledger-projection) [SyncInTxn](#gloss-syncintxn) 更新 `… WHERE tenant_id = $1`，保证 [读己之写](#gloss-read-your-writes)。
+3. **Circle HTTP**：优先放在 [Workflow](#gloss-workflow) / [AfterCommit](#gloss-aftercommit) / [Outbox](#gloss-outbox)（提交成功后再调），避免把外部延迟和重试塞进账本写事务。若必须在 Handler 里调 Circle，只做「创建意图 / 拿到外部 id」类短调用，仍把余额事实留给 SyncInTxn 投影。
+
+**反模式：** 为每个 C 端买家分配一个 `TenantID`。那会把幂等、唯一键、AuthZ、投影过滤全部打散，也与「入驻商户」计费边界不符。
+
+**Circle 配置的两种模式**
+
+1. **平台一把 API Key** — 宿主进程持有一套 Circle 凭证；每笔请求在 Circle metadata / 业务引用里带上 `merchant_id`（或 `TenantID`）。适合统一清算、平台代收。
+2. **每商户一套 Circle 凭证** — 密钥按 `TenantID` 索引（KMS / secrets 表）；出站调用前用当前命令的 `TenantID` 取凭证。适合商户自有 Circle 账户。
+
+两种模式都不改变「Tenant = Merchant」；只改变密钥与 Circle 账户的归属。
 
 ---
 
@@ -680,7 +721,7 @@ Q3 完整性：每条事件存 `prev_hash` + `event_hash`（对 `eventstore/hash
 <a id="gloss-tenant"></a>
 
 **租户（Tenant）与用户（User）**  
-`Meta.TenantID` 是多租户隔离单元（Q4：共享 schema + `tenant_id`）。`Meta.UserID` 是操作者——**不要**只信客户端 UserID，应结合 `AuthContext` 与 AuthZ。`tenancy` Middleware 可从 ctx 写入 TenantID。
+`Meta.TenantID` 是多租户隔离单元（Q4：共享 schema + `tenant_id`）。`Meta.UserID` 是操作者——**不要**只信客户端 UserID，应结合 `AuthContext` 与 AuthZ。`tenancy` Middleware 可从 ctx 写入 TenantID。在 Circle 多商户场景里：**Tenant = 入驻商户**，User = 该商户下的买家/操作员——见 [§17 业务示例](#业务示例circle-多商户)；**不要**给每个 C 端用户一个 TenantID。
 
 <a id="gloss-outbox"></a>
 

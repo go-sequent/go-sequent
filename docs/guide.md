@@ -24,7 +24,7 @@ Module: `github.com/go-sequent/go-sequent` · Shape: **pure library** (no HTTP/g
 14. [Unique keys and optimistic concurrency](#14-unique-keys-and-optimistic-concurrency)
 15. [Idempotency](#15-idempotency)
 16. [AuthZ](#16-authz)
-17. [Tenancy](#17-tenancy)
+17. [Tenancy](#17-tenancy) — [Business example: Circle multi-merchant](#business-example-circle-multi-merchant)
 18. [Money (decimal)](#18-money-decimal)
 19. [OpenTelemetry (`obs`)](#19-opentelemetry-obs) — [Role and purpose](#role-and-purpose)
 20. [Migrations and ops CLI](#20-migrations-and-ops-cli)
@@ -267,7 +267,48 @@ Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; 
 
 ## 17. Tenancy
 
-Shared schema + `tenant_id` (Q4). `tenancy.WithTenant` + middleware copies into `Meta.TenantID`. Helpers: `UniqueScope`, `PartitionKey`, `MatchAggregateTenant`.
+Shared schema + `tenant_id` ([Q4](#27-locked-decisions-q1q10)). `tenancy.WithTenant` + middleware copies into `Meta.TenantID`. Helpers: `UniqueScope`, `PartitionKey`, `PartitionKeyHashed`, `MatchAggregateTenant`. No first-class schema-per-tenant / DB-per-tenant.
+
+See also: [Tenant vs User](#gloss-tenant), [Idempotency](#gloss-idempotency), [Ledger projection](#gloss-ledger-projection), [SyncInTxn](#gloss-syncintxn), [AuthZ](#gloss-authz), [Unique keys](#gloss-unique-keys).
+
+<a id="business-example-circle-multi-merchant"></a>
+<a id="tenancy-circle-merchants"></a>
+
+### Business example: Circle multi-merchant
+
+When integrating the **Circle API** for a **multi-merchant** payments / wallet product, the go-sequent tenancy boundary is the **merchant**, not the end buyer.
+
+| Business concept | go-sequent mapping |
+|------------------|--------------------|
+| **Merchant** | **[Tenant](#gloss-tenant)** → `Meta.TenantID` / row `tenant_id` |
+| Buyer / operator / back-office actor | **User** → `Meta.UserID` (AuthN first; then [AuthZ](#gloss-authz)) |
+| Payment, Wallet, Settlement, … | **[Aggregate](#gloss-aggregate)** (per-stream OCC) |
+| Merchant balance, reconciliation, withdrawable | **[Ledger projection](#gloss-ledger-projection)** via [SyncInTxn](#gloss-syncintxn), filtered by `tenant_id` |
+
+**Do not** make each C-end user a tenant. End users may appear as `buyer_id` in event payloads, or as `UserID` when they issue commands; isolation and billing stay **Merchant = Tenant**. This matches locked Q4 (shared schema + `tenant_id`): one events table, every row tagged — not one schema per merchant.
+
+**App-level mapping (sketch)**
+
+| Column | Role |
+|--------|------|
+| `merchant_id` (business key) | External merchant id |
+| `tenant_id` (UUID) | Written to `Meta.TenantID` / projection filters |
+| Circle-side ids | See the two config patterns below |
+
+**Payment happy path (sketch)**
+
+1. Gateway / BFF resolves `TenantID` from API key, subdomain, or JWT `merchant_id`, then `tenancy.WithTenant(ctx, tenantID)`; authenticated principal → `Meta.UserID` (buyer or operator **under that merchant**). **Never** authorize on client-supplied UserID alone.
+2. `CommandService.Execute` (e.g. `CapturePayment`): in the write txn — tenant-scoped [AuthZ](#gloss-authz) → Handler `Apply`s domain events on Payment / Wallet aggregates (payloads may include Circle `payment_id` / `transfer_id`) → [EventStore](#gloss-eventstore) Append with [idempotency](#gloss-idempotency) `(tenant_id, key)` and [unique keys](#gloss-unique-keys) such as `tenancy.UniqueScope(tenantID, "merchant_order")` → [ledger projection](#gloss-ledger-projection) [SyncInTxn](#gloss-syncintxn) updates `… WHERE tenant_id = $1` → [read-your-writes](#gloss-read-your-writes).
+3. **Circle HTTP:** prefer [Workflow](#gloss-workflow) / [AfterCommit](#gloss-aftercommit) / [Outbox](#gloss-outbox) after a successful commit so external latency/retries stay out of the ledger write txn. If the Handler must call Circle, keep it to short “create intent / obtain external id” calls; balance facts still belong to SyncInTxn projectors.
+
+**Anti-pattern:** one `TenantID` per C-end buyer. That shreds idempotency, unique keys, AuthZ, and projection filters, and does not match the onboarded-merchant billing boundary.
+
+**Two Circle configuration patterns**
+
+1. **One platform API key** — the host holds a single Circle credential; each call tags Circle metadata / client references with `merchant_id` (or `TenantID`). Fits platform settlement / collect-on-behalf.
+2. **Per-merchant Circle credentials** — secrets indexed by `TenantID` (KMS / secrets table); look up credentials from the command’s `TenantID` before outbound calls. Fits merchants with their own Circle accounts.
+
+Neither pattern changes “Tenant = Merchant”; only credential ownership changes.
 
 ---
 
@@ -504,7 +545,7 @@ Key space `(TenantID, IdempotencyKey)`. Successful retry is a no-op by default; 
 <a id="gloss-tenant"></a>
 
 **Tenant vs User**  
-`Meta.TenantID` is the multi-tenant isolation unit (Q4: shared schema + `tenant_id`). `Meta.UserID` is the actor — **do not** trust client UserID alone; use `AuthContext` + AuthZ. `tenancy` middleware can copy tenant from ctx.
+`Meta.TenantID` is the multi-tenant isolation unit (Q4: shared schema + `tenant_id`). `Meta.UserID` is the actor — **do not** trust client UserID alone; use `AuthContext` + AuthZ. `tenancy` middleware can copy tenant from ctx. For Circle multi-merchant: **Tenant = onboarded merchant**, User = buyer/operator under that merchant — see [§17 business example](#business-example-circle-multi-merchant); **do not** assign one TenantID per C-end user.
 
 <a id="gloss-outbox"></a>
 

@@ -49,6 +49,10 @@ go get github.com/go-sequent/go-sequent@latest
 
 `main`/`master` 的 push/PR 跑 race 测试、vet、golangci-lint、mod tidy，以及 Postgres 集成测。打 `v*` 标签会再跑完整 CI，并用 GoReleaser 发布 `cmd/go-sequent` 二进制。**CI 不需要 secrets。** 详见 [ci.zh.md](./ci.zh.md) · [ci.md](./ci.md)。
 
+## 租户（Q4）
+
+共享 schema + `tenant_id`。多商户支付（如 Circle）时 **Tenant = 商户**，不是 C 端买家——见 [指南 §17 业务示例：Circle 多商户](./guide.zh.md#业务示例circle-多商户)（[名词：租户](./guide.zh.md#gloss-tenant)）。
+
 ## 金额（Q2）
 
 使用 `types.Money`（decimal 字符串 JSON）。**禁止** `float64`。可用 `types.AssertNoFloatMoney` / `testkit.BanFloat64Money`。

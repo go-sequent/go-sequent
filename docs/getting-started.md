@@ -68,6 +68,10 @@ GitHub Actions on `main`/`master` PRs and pushes: race tests, vet, golangci-lint
 4. Register **Projectors** on `SyncInTxn` (Q1 — ledger balances in the write txn).
 5. Call `CommandService.Execute(ctx, cmds...)`.
 
+## Tenancy (Q4)
+
+Shared schema + `tenant_id`. For multi-merchant payments (e.g. Circle), **Tenant = merchant**, not the C-end buyer — see [guide §17 Circle multi-merchant](./guide.md#business-example-circle-multi-merchant) ([glossary: Tenant](./guide.md#gloss-tenant)).
+
 ## Money (Q2)
 
 Use `types.Money` (decimal string JSON). **Never** `float64` for money.
