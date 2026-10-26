@@ -72,7 +72,9 @@ GitHub Actions on `main`/`master` PRs and pushes: race tests, vet, golangci-lint
 
 ## Tenancy
 
-Shared schema + `tenant_id`. For multi-merchant payments (e.g. Circle), **Tenant = merchant**, not the C-end buyer — see [guide §17 Circle multi-merchant](./guide.md#business-example-circle-multi-merchant) ([glossary: Tenant](./guide.md#gloss-tenant)).
+Shared schema + `tenant_id`. For multi-merchant payments (e.g. Circle), Tenant = merchant, not the C-end buyer — see [guide §17](./guide.md#business-example-circle-multi-merchant) ([glossary: Tenant](./guide.md#gloss-tenant)).
+
+How UoW, OCC, and idempotency stack on the write path: [write-path consistency](./guide.md#write-path-consistency-uow-occ-and-idempotency).
 
 ## Money
 
