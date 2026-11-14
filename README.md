@@ -6,9 +6,11 @@
 
 Go CQRS + Event Sourcing library for financial systems, inspired by [Sequent](https://sequent.io/) (conceptual only — no Ruby DB compatibility).
 
+**Website / docs:** [https://go-sequent.org](https://go-sequent.org) · [中文](https://go-sequent.org/zh)
+
 Brand assets: [docs/brand/](docs/brand/).
 
-**Status:** Phase 4 (production hardening). Private / not open-source.
+**Status:** Phase 4 (production hardening). Open source (MIT).
 
 ## Module
 
