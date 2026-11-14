@@ -320,9 +320,14 @@ func (s *Store) ensureType(ctx context.Context, db q, table, name string, cache 
 	var id int16
 	err := db.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE type = $1`, table), name).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Multiple Store instances (or parallel test packages) may race on first insert.
+		// Match store_events PL/pgSQL: ON CONFLICT DO NOTHING, then re-select.
 		err = db.QueryRow(ctx,
-			fmt.Sprintf(`INSERT INTO %s (type) VALUES ($1) RETURNING id`, table), name,
+			fmt.Sprintf(`INSERT INTO %s (type) VALUES ($1) ON CONFLICT (type) DO NOTHING RETURNING id`, table), name,
 		).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = db.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE type = $1`, table), name).Scan(&id)
+		}
 	}
 	if err != nil {
 		return 0, fmt.Errorf("postgres: ensure type %s/%s: %w", table, name, err)
